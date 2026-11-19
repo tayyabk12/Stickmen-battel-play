@@ -28,9 +28,9 @@ class GameAudioEngine {
   private preloadCustomClips(): void {
     if (typeof window === 'undefined' || typeof Audio === 'undefined') return;
     try {
-      this.faaahAudio = new Audio('/sounds/faaah.mp3');
+      this.faaahAudio = new Audio('/sounds/kill-enemy.mp3');
       this.faaahAudio.preload = 'auto';
-      this.faaahAudio.volume = 0.85;
+      this.faaahAudio.volume = 0.88;
 
       this.mistriAudio = new Audio('/assets/aistudio/mistri-man-jao_6VOMK5Ga_dd5a5d37.mp3');
       this.mistriAudio.preload = 'auto';
@@ -63,6 +63,7 @@ class GameAudioEngine {
       this.activeLongClip = null;
     }
     for (const clip of [
+      this.faaahAudio,
       this.mistriAudio,
       this.chachaAudio,
       this.gameStartAudio,
@@ -82,12 +83,14 @@ class GameAudioEngine {
   public playKillFaaah(): void {
     if (this.muted || typeof Audio === 'undefined') return;
     try {
-      // Clone from preloaded template so rapid double/triple kills fire crisply without cutting out
-      const clip = this.faaahAudio
-        ? (this.faaahAudio.cloneNode(true) as HTMLAudioElement)
-        : new Audio('/sounds/faaah.mp3');
-      clip.volume = 0.88;
-      clip.play().catch(() => {});
+      this.stopCustomClips();
+      if (!this.faaahAudio) {
+        this.faaahAudio = new Audio('/sounds/kill-enemy.mp3');
+      }
+      this.faaahAudio.volume = 0.88;
+      this.faaahAudio.currentTime = 0;
+      this.activeLongClip = this.faaahAudio;
+      this.faaahAudio.play().catch(() => {});
     } catch {
       // Ignore autoplay restrictions
     }
