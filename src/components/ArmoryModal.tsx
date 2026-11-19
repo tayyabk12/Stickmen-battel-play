@@ -58,12 +58,12 @@ export const ArmoryModal: React.FC<ArmoryModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#090D14]/88 p-4">
-      <div className="my-auto w-full max-w-5xl rounded-xl border border-slate-700 bg-[#141B26] p-5 shadow-2xl sm:p-6">
+    <div className="fixed inset-0 z-50 flex items-start md:items-center justify-center overflow-y-auto overscroll-contain bg-[#090D14]/88 p-3 sm:p-4">
+      <div className="my-auto w-full max-w-5xl rounded-xl border border-slate-700 bg-[#141B26] p-4 shadow-2xl sm:p-6">
         {/* Header Bar: Title + Player Level XP + Gold Coins */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
           <div>
-            <h2 className="font-display text-3xl font-extrabold tracking-wide text-slate-50">
+            <h2 className="font-display text-2xl sm:text-3xl font-extrabold tracking-wide text-slate-50">
               Gun Armory & Power Upgrades
             </h2>
             <p className="mt-0.5 text-xs text-slate-400">
@@ -71,9 +71,9 @@ export const ArmoryModal: React.FC<ArmoryModalProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
             {/* Level + XP Progress Box */}
-            <div className="min-w-[155px] rounded-lg border border-slate-700/80 bg-[#0F151E] px-3 py-2">
+            <div className="min-w-[140px] rounded-lg border border-slate-700/80 bg-[#0F151E] px-3 py-2">
               <div className="flex items-center justify-between text-xs font-bold">
                 <span className="inline-flex items-center gap-1 text-sky-300">
                   <Zap className="h-3.5 w-3.5" />

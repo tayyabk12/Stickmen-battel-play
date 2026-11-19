@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Check,
@@ -8,6 +8,7 @@ import {
   Copy,
   Crosshair,
   Flame,
+  Gamepad2,
   LogOut,
   Pause,
   Play,
@@ -118,6 +119,7 @@ import {
 } from '../lib/firebase';
 import { StickFigureSvg } from './StickFigureSvg';
 import { GoldCoinSvg, WeaponGraphicSvg } from './WeaponGraphicSvg';
+import { MobileController } from './MobileController';
 
 const CONCRETE_TEXTURE_URL = '/src/assets/images/arena_concrete_texture_1795067428629.jpg';
 
@@ -305,7 +307,25 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     w: typeof window !== 'undefined' ? window.innerWidth : 1280,
     h: typeof window !== 'undefined' ? window.innerHeight : 720,
   }));
-  const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const [mobileControlsEnabled, setMobileControlsEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const saved = window.localStorage.getItem('los_touch_pad_v1');
+      if (saved === 'on') return true;
+      if (saved === 'off') return false;
+    } catch {
+      // ignore storage errors
+    }
+    return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth <= 900;
+  });
+  const [autoFireEnabled, setAutoFireEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem('los_auto_fire_v1') === 'on';
+    } catch {
+      return false;
+    }
+  });
 
   const [, setRenderTick] = useState(0);
   const [hud, setHud] = useState<HudSnapshot>({
@@ -465,6 +485,9 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     worldY: 0,
   });
   const justPressedAttackRef = useRef(false);
+  const isHoldingAttackRef = useRef(false);
+  const autoFireRef = useRef(autoFireEnabled);
+  autoFireRef.current = autoFireEnabled;
   const justPressedDashRef = useRef(false);
   const justPressedUtilityRef = useRef(false);
   const justPressedSwapRef = useRef(false);
@@ -555,18 +578,89 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     return getSpawnPosition(idx, Math.max(1, allSorted.length), obstacles, roundNumber, safeZone);
   };
 
-  // Detect touch device & viewport resize
+  const arenaContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Container-aware ResizeObserver + orientation auto-adjustment across phone, tablet, and laptop frames
   useEffect(() => {
-    const checkTouch = () => {
-      setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    const syncFrame = (w: number, h: number) => {
+      const safeW = Math.max(240, Math.round(w));
+      const safeH = Math.max(240, Math.round(h));
+      setViewport((prev) =>
+        prev.w === safeW && prev.h === safeH ? prev : { w: safeW, h: safeH }
+      );
+      // Auto-toggle mobile controller on frame resize unless user explicitly set a manual preference
+      try {
+        const manual = window.localStorage.getItem('los_touch_pad_v1');
+        if (manual !== 'on' && manual !== 'off') {
+          const coarse =
+            typeof window.matchMedia === 'function' &&
+            window.matchMedia('(pointer: coarse)').matches;
+          const shouldEnable =
+            'ontouchstart' in window || navigator.maxTouchPoints > 0 || coarse || safeW <= 900;
+          setMobileControlsEnabled(shouldEnable);
+        }
+      } catch {
+        // ignore storage errors
+      }
     };
-    const onResize = () => {
-      setViewport({ w: window.innerWidth, h: window.innerHeight });
+
+    const el = arenaContainerRef.current;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        syncFrame(rect.width, rect.height);
+      }
+    }
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && el) {
+      ro = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect;
+          if (width > 0 && height > 0) {
+            syncFrame(width, height);
+          }
+        }
+      });
+      ro.observe(el);
+    }
+
+    const onWindowResize = () => {
+      const targetEl = arenaContainerRef.current;
+      if (targetEl) {
+        const r = targetEl.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          syncFrame(r.width, r.height);
+          return;
+        }
+      }
+      syncFrame(window.innerWidth, window.innerHeight);
     };
-    checkTouch();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+
+    window.addEventListener('resize', onWindowResize);
+    window.addEventListener('orientationchange', onWindowResize);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', onWindowResize);
+      window.removeEventListener('orientationchange', onWindowResize);
+    };
   }, []);
+
+  const toggleMobileControls = () => {
+    setMobileControlsEnabled((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem('los_touch_pad_v1', next ? 'on' : 'off');
+      } catch {
+        // ignore
+      }
+      if (!next) {
+        joyVecRef.current = { x: 0, y: 0 };
+        isHoldingAttackRef.current = false;
+      }
+      return next;
+    });
+  };
 
   // VFX spawners
   const spawnParticles = (x: number, y: number, color: string, count = 8, speed = 135) => {
@@ -1669,6 +1763,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
       keysHeldRef.current.clear();
       pointerMoveRef.current.active = false;
       joyVecRef.current = { x: 0, y: 0 };
+      isHoldingAttackRef.current = false;
       setScoreboardOpen(false);
     };
 
@@ -2965,7 +3060,12 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 deployUtility(fighter);
               }
 
-              if (justPressedAttackRef.current) {
+              const shouldAutoShoot =
+                autoFireRef.current &&
+                fighter.attackCooldown <= 0 &&
+                Boolean(findBestTargetFor(fighter));
+
+              if (justPressedAttackRef.current || isHoldingAttackRef.current || shouldAutoShoot) {
                 justPressedAttackRef.current = false;
                 performWeaponAttack(fighter);
               }
@@ -3036,6 +3136,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               fighter.vy = 0;
               fighter.animState = 'downed';
               justPressedAttackRef.current = false;
+              isHoldingAttackRef.current = false;
               justPressedDashRef.current = false;
               justPressedUtilityRef.current = false;
               justPressedSwapRef.current = false;
@@ -3475,12 +3576,18 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, gameMode, localUserId, onMatchComplete]);
 
-  // SVG viewport math
+  // Aspect-ratio-aware SVG camera math (balances field of view across phone portrait/landscape, tablet, and laptop)
   const localFighter = fightersRef.current.get(localUserId);
-  const baseZoom = viewport.w < 640 ? 0.8 : viewport.w < 1024 ? 0.92 : 1.02;
+  const shortSide = Math.max(240, Math.min(viewport.w, viewport.h));
+  const longSide = Math.max(320, Math.max(viewport.w, viewport.h));
+  const targetShortWorld = shortSide < 460 ? 640 : shortSide < 780 ? 700 : 740;
+  const fitByShort = shortSide / targetShortWorld;
+  const fitByLong = longSide / 1380;
+  const baseZoom = Math.max(0.48, Math.min(1.12, Math.min(fitByShort, fitByLong * 1.18)));
   const zoom = localFighter?.weaponCategory === 'long' ? baseZoom * 0.88 : baseZoom;
   const viewW = viewport.w / zoom;
   const viewH = viewport.h / zoom;
+  const isShortFrame = viewport.h < 500;
   const shakeX =
     cameraRef.current.shake > 0 ? (Math.random() - 0.5) * cameraRef.current.shake * 2 : 0;
   const shakeY =
@@ -3519,7 +3626,9 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
 
   // Pointer click-to-attack / right-click-dash on desktop arena SVG
   const handleArenaPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (paused || isTouchDevice || hud.roundPhase !== 'active') return;
+    if (paused || mobileControlsEnabled || e.pointerType === 'touch' || hud.roundPhase !== 'active') {
+      return;
+    }
     if (e.button === 2) {
       justPressedDashRef.current = true;
       return;
@@ -3529,40 +3638,49 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     }
   };
 
-  // Virtual touch joystick handlers
-  const joyOriginRef = useRef<{ x: number; y: number } | null>(null);
-  const [joyKnob, setJoyKnob] = useState({ x: 0, y: 0 });
+  // Stable callbacks for multi-touch MobileController
+  const handleMobileMoveVector = useCallback((x: number, y: number) => {
+    joyVecRef.current = { x, y };
+  }, []);
 
-  const handleJoyStart = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const rect = e.currentTarget.getBoundingClientRect();
-    joyOriginRef.current = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-    updateJoy(e.clientX, e.clientY);
-  };
+  const handleMobileFireChange = useCallback((firing: boolean) => {
+    isHoldingAttackRef.current = firing;
+    if (firing) {
+      justPressedAttackRef.current = true;
+    }
+  }, []);
 
-  const handleJoyMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!joyOriginRef.current) return;
-    updateJoy(e.clientX, e.clientY);
-  };
+  const handleMobileDash = useCallback(() => {
+    justPressedDashRef.current = true;
+  }, []);
 
-  const handleJoyEnd = () => {
-    joyOriginRef.current = null;
-    joyVecRef.current = { x: 0, y: 0 };
-    setJoyKnob({ x: 0, y: 0 });
-  };
+  const handleMobileCover = useCallback(() => {
+    justPressedCoverRef.current = true;
+  }, []);
 
-  const updateJoy = (cx: number, cy: number) => {
-    if (!joyOriginRef.current) return;
-    const maxR = 44;
-    const dx = cx - joyOriginRef.current.x;
-    const dy = cy - joyOriginRef.current.y;
-    const d = Math.hypot(dx, dy);
-    const clamped = Math.min(d, maxR);
-    const nx = d > 0.01 ? (dx / d) * (clamped / maxR) : 0;
-    const ny = d > 0.01 ? (dy / d) * (clamped / maxR) : 0;
-    joyVecRef.current = { x: nx, y: ny };
-    setJoyKnob({ x: nx * maxR, y: ny * maxR });
-  };
+  const handleMobileUtility = useCallback(() => {
+    justPressedUtilityRef.current = true;
+  }, []);
+
+  const handleMobileNova = useCallback(() => {
+    justPressedNovaRef.current = true;
+  }, []);
+
+  const handleMobileSwap = useCallback(() => {
+    justPressedSwapRef.current = true;
+  }, []);
+
+  const handleToggleAutoFire = useCallback(() => {
+    setAutoFireEnabled((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem('los_auto_fire_v1', next ? 'on' : 'off');
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
 
   const copyRoomCode = () => {
     if (!room) return;
@@ -3574,7 +3692,10 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
   const pulseWave = (Math.sin(totalElapsedRef.current * 4.5) + 1) * 0.5;
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#0E131A]">
+    <div
+      ref={arenaContainerRef}
+      className="relative h-full w-full overflow-hidden bg-[#0E131A] touch-none select-none"
+    >
       {/* Isolated Full-Viewport SVG Game Canvas */}
       <svg
         className="block h-full w-full cursor-crosshair select-none"
@@ -4459,16 +4580,32 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
         />
       )}
 
-      {/* Low-Occlusion World-Matched HUD */}
-      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4">
+      {/* Low-Occlusion World-Matched HUD (auto-adapts for phone portrait/landscape, tablet, and laptop) */}
+      <div
+        className="pointer-events-none absolute inset-0 flex flex-col justify-between"
+        style={{
+          paddingTop: isShortFrame
+            ? 'max(0.5rem, env(safe-area-inset-top))'
+            : 'max(0.75rem, env(safe-area-inset-top))',
+          paddingBottom: isShortFrame
+            ? 'max(0.5rem, env(safe-area-inset-bottom))'
+            : 'max(0.75rem, env(safe-area-inset-bottom))',
+          paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
+          paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
+        }}
+      >
         {/* Top Row: Left Round & Timing Zone | Center TDM / Survival Scoreboard | Right Controls */}
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-2 md:flex-nowrap md:gap-3">
           {/* Top-Left: Round Phase Clock + 4-Round Progress + Zone Info */}
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-3.5 rounded-lg border border-slate-700/80 bg-[#121821]/92 px-3.5 py-2 shadow-lg">
+          <div className="order-1 flex flex-col gap-1">
+            <div
+              className={`flex items-center rounded-lg border border-slate-700/80 bg-[#121821]/92 shadow-lg ${
+                isShortFrame ? 'gap-2 px-2.5 py-1.5' : 'gap-2.5 px-2.5 py-1.5 sm:gap-3.5 sm:px-3.5 sm:py-2'
+              }`}
+            >
               <div className="flex flex-col">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Round {hud.currentRound}/{hud.totalRounds}
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">
+                  R{hud.currentRound}/{hud.totalRounds}
                 </span>
                 <div className="mt-1 flex items-center gap-1">
                   {Array.from({ length: hud.totalRounds }).map((_, i) => {
@@ -4478,7 +4615,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                     return (
                       <span
                         key={rIdx}
-                        className={`h-1.5 w-4 rounded-sm ${
+                        className={`h-1.5 w-3 sm:w-4 rounded-sm ${
                           active
                             ? 'bg-amber-400'
                             : done
@@ -4491,12 +4628,12 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 </div>
               </div>
 
-              <div className="h-7 w-px bg-slate-700/80" />
+              <div className="h-6 sm:h-7 w-px bg-slate-700/80" />
 
               <div className="flex items-baseline gap-1.5">
-                <span className="text-[11px] font-medium text-slate-400">Round</span>
+                <span className="hidden sm:inline text-[11px] font-medium text-slate-400">Round</span>
                 <span
-                  className={`font-mono text-xl font-bold leading-none tabular-nums ${
+                  className={`font-mono text-base sm:text-xl font-bold leading-none tabular-nums ${
                     hud.roundTimeRemainingSec <= 10 ? 'text-red-400' : 'text-amber-400'
                   }`}
                 >
@@ -4504,9 +4641,9 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 </span>
               </div>
 
-              <div className="hidden md:block h-7 w-px bg-slate-700/80" />
+              <div className="hidden lg:block h-7 w-px bg-slate-700/80" />
 
-              <div className="hidden md:flex items-baseline gap-1.5">
+              <div className="hidden lg:flex items-baseline gap-1.5">
                 <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
                   Match
                 </span>
@@ -4515,24 +4652,24 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 </span>
               </div>
 
-              <div className="hidden sm:block h-7 w-px bg-slate-700/80" />
+              <div className="hidden sm:block h-6 sm:h-7 w-px bg-slate-700/80" />
 
-              <div className="hidden sm:flex items-baseline gap-2.5 font-mono text-xs tabular-nums">
+              <div className="hidden sm:flex items-baseline gap-2 font-mono text-xs tabular-nums">
                 <span className="inline-flex items-center gap-1 font-bold text-slate-100">
                   <Skull className="h-3.5 w-3.5 text-slate-400" />
                   {hud.kills}/{hud.deaths}
                 </span>
-                <span className="font-bold text-amber-300">{hud.points} pts</span>
+                <span className="hidden md:inline font-bold text-amber-300">{hud.points} pts</span>
                 <span className="inline-flex items-center gap-1 font-extrabold text-yellow-300">
                   <GoldCoinSvg size={14} />
                   {hud.totalCoins.toLocaleString()}
                   {hud.coinsEarned > 0 && (
-                    <span className="text-[10px] font-bold text-emerald-400">
+                    <span className="hidden xl:inline text-[10px] font-bold text-emerald-400">
                       +{hud.coinsEarned}
                     </span>
                   )}
                 </span>
-                <span className="inline-flex items-center gap-1 font-bold text-sky-300">
+                <span className="hidden xl:inline-flex items-center gap-1 font-bold text-sky-300">
                   Lv.{hud.playerLevel}
                 </span>
                 {hud.localStreak >= 2 && (
@@ -4544,30 +4681,32 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               </div>
             </div>
 
-            {/* Safe-Zone & Map Sector Telemetry */}
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-xs font-semibold">
-              {hud.inStorm ? (
-                <span className="inline-flex items-center gap-1.5 text-red-400">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  IN STORM — Move to safe zone
+            {/* Safe-Zone & Map Sector Telemetry (auto-hides on ultra-short landscape frames to keep playfield wide open) */}
+            {!isShortFrame && (
+              <div className="hidden sm:flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-xs font-semibold">
+                {hud.inStorm ? (
+                  <span className="inline-flex items-center gap-1.5 text-red-400">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    IN STORM — Move to safe zone
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 text-slate-300">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                    {hud.phaseLabel}
+                  </span>
+                )}
+                <span aria-hidden="true" className="text-slate-600">
+                  ·
                 </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 text-slate-300">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                  {hud.phaseLabel}
+                <span className="inline-flex items-center gap-1" style={{ color: zoneMeta.accent }}>
+                  <Compass className="h-3.5 w-3.5" />
+                  {zoneMeta.name}
                 </span>
-              )}
-              <span aria-hidden="true" className="text-slate-600">
-                ·
-              </span>
-              <span className="inline-flex items-center gap-1" style={{ color: zoneMeta.accent }}>
-                <Compass className="h-3.5 w-3.5" />
-                {zoneMeta.name}
-              </span>
-            </div>
+              </div>
+            )}
 
-            {hud.rareVaultRemaining > 0 && (
-              <div className="flex items-center gap-1.5 px-1 text-[11px] font-semibold text-amber-300/90">
+            {!isShortFrame && hud.rareVaultRemaining > 0 && (
+              <div className="hidden md:flex items-center gap-1.5 px-1 text-[11px] font-semibold text-amber-300/90">
                 <Sparkles className="h-3 w-3 text-amber-400" />
                 <span>
                   {hud.rareVaultRemaining} Rare Gold{' '}
@@ -4578,14 +4717,19 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
           </div>
 
           {/* Top-Center: TDM Live Scoreboard OR Survival Standing + Hype Banners & Kill Feed */}
-          <div className="flex flex-col items-center gap-1.5">
+          <div className="order-3 md:order-2 flex w-full md:w-auto flex-col items-center gap-1">
             {gameMode === 'tdm' ? (
-              <div className="flex items-center gap-3 rounded-lg border border-slate-700/80 bg-[#121821]/92 px-3.5 py-2 shadow-lg">
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-extrabold tracking-wider text-red-400">
-                    CRIMSON
+              <div
+                className={`flex items-center gap-2.5 sm:gap-3 rounded-lg border border-slate-700/80 bg-[#121821]/92 shadow-lg ${
+                  isShortFrame ? 'px-2.5 py-1' : 'px-3 py-1.5 sm:px-3.5 sm:py-2'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <span className="text-[10px] sm:text-[11px] font-extrabold tracking-wider text-red-400">
+                    <span className="sm:hidden">RED</span>
+                    <span className="hidden sm:inline">CRIMSON</span>
                   </span>
-                  <span className="font-display text-2xl font-bold leading-none text-red-200 tabular-nums">
+                  <span className="font-display text-xl sm:text-2xl font-bold leading-none text-red-200 tabular-nums">
                     {hud.redScore}
                   </span>
                   <span className="rounded bg-red-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-red-300 tabular-nums">
@@ -4597,20 +4741,25 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                   VS
                 </span>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   <span className="rounded bg-blue-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-blue-300 tabular-nums">
                     {hud.blueRoundsWon}W
                   </span>
-                  <span className="font-display text-2xl font-bold leading-none text-blue-200 tabular-nums">
+                  <span className="font-display text-xl sm:text-2xl font-bold leading-none text-blue-200 tabular-nums">
                     {hud.blueScore}
                   </span>
-                  <span className="text-[11px] font-extrabold tracking-wider text-blue-400">
-                    COBALT
+                  <span className="text-[10px] sm:text-[11px] font-extrabold tracking-wider text-blue-400">
+                    <span className="sm:hidden">BLU</span>
+                    <span className="hidden sm:inline">COBALT</span>
                   </span>
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-3 rounded-lg border border-slate-700/80 bg-[#121821]/92 px-3.5 py-2 shadow-lg">
+              <div
+                className={`flex items-center gap-2.5 sm:gap-3 rounded-lg border border-slate-700/80 bg-[#121821]/92 shadow-lg ${
+                  isShortFrame ? 'px-2.5 py-1' : 'px-3 py-1.5 sm:px-3.5 sm:py-2'
+                }`}
+              >
                 <span className="text-xs font-semibold text-slate-400">
                   Alive{' '}
                   <strong className="font-mono text-sm text-slate-100 tabular-nums">
@@ -4626,14 +4775,59 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 </span>
                 <div className="h-4 w-px bg-slate-700" />
                 {hud.survivalResurgenceActive ? (
-                  <span className="font-mono text-xs font-bold text-emerald-400 tabular-nums">
-                    Resurgence {Math.ceil(hud.survivalResurgenceLeftSec)}s
+                  <span className="font-mono text-xs font-bold text-emerald-400 tabular-nums whitespace-nowrap">
+                    Resurge {Math.ceil(hud.survivalResurgenceLeftSec)}s
                   </span>
                 ) : (
-                  <span className="text-xs font-extrabold uppercase tracking-wider text-red-400">
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-red-400 whitespace-nowrap">
                     Final Showdown
                   </span>
                 )}
+              </div>
+            )}
+
+            {/* Ultra-compact Mobile HP + Equipped Gun Strip on narrow phones (< md) so thumbs have 100% clear bottom corners */}
+            {mobileControlsEnabled && (
+              <div className="flex md:hidden items-center gap-2 rounded-lg border border-slate-700/80 bg-[#121821]/92 px-2.5 py-1 shadow-md">
+                <div className="flex items-center gap-1.5">
+                  <div className="h-5 w-8 shrink-0">
+                    <WeaponGraphicSvg
+                      category={hud.weaponCategory}
+                      upgradeLevel={hud.weaponUpgradeLevel}
+                      rarity={hud.weaponRarity}
+                      className="h-full w-full"
+                      compact
+                    />
+                  </div>
+                  <span
+                    className="max-w-[92px] truncate text-[11px] font-bold"
+                    style={{ color: equippedRarityMeta.color }}
+                  >
+                    {equippedWeaponMeta.name}
+                  </span>
+                </div>
+                <div className="h-4 w-px bg-slate-700" />
+                <div className="flex items-center gap-1.5">
+                  <span className="font-mono text-[11px] font-bold text-slate-200 tabular-nums">
+                    HP {hud.health}
+                  </span>
+                  <div className="h-2 w-14 overflow-hidden rounded-sm bg-slate-800">
+                    <div
+                      className="h-full transition-all duration-100"
+                      style={{
+                        width: `${Math.max(0, Math.min(100, hud.health))}%`,
+                        backgroundColor:
+                          hud.health > 50 ? '#10B981' : hud.health > 25 ? '#F59E0B' : '#EF4444',
+                      }}
+                    />
+                  </div>
+                  {hud.shield > 0 && (
+                    <span className="inline-flex items-center gap-0.5 font-mono text-[10px] font-bold text-sky-400 tabular-nums">
+                      <Shield className="h-2.5 w-2.5" />
+                      {hud.shield}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
@@ -4712,7 +4906,25 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
           </div>
 
           {/* Top-Right Controls */}
-          <div className="pointer-events-auto flex items-center gap-2">
+          <div className="order-2 md:order-3 pointer-events-auto flex items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={toggleMobileControls}
+              title={mobileControlsEnabled ? 'Hide Mobile Controller' : 'Show Mobile Controller'}
+              aria-pressed={mobileControlsEnabled}
+              className={`inline-flex h-9 sm:h-10 items-center gap-1.5 rounded-lg border px-2.5 sm:px-3 text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+                mobileControlsEnabled
+                  ? 'border-amber-400/80 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
+                  : 'border-slate-700/80 bg-[#121821]/92 text-slate-200 hover:border-amber-400/70 hover:text-amber-300'
+              }`}
+            >
+              <Gamepad2
+                className={`h-4 w-4 ${mobileControlsEnabled ? 'text-amber-300' : 'text-slate-400'}`}
+              />
+              <span className="hidden lg:inline">
+                {mobileControlsEnabled ? 'Touch Pad ON' : 'Touch Pad'}
+              </span>
+            </button>
             <button
               type="button"
               onClick={() => setScoreboardOpen((s) => !s)}
@@ -4721,7 +4933,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
             >
               <Trophy className="h-3.5 w-3.5 text-amber-400" />
               <span className="hidden sm:inline">Scores</span>
-              <span className="font-mono text-[10px] text-slate-400">[Tab]</span>
+              <span className="hidden md:inline font-mono text-[10px] text-slate-400">[Tab]</span>
             </button>
             {mode === 'multi' && room && (
               <button
@@ -4762,22 +4974,12 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
         </div>
 
         {/* Bottom Row: 4-Zone Tactical Radar | Weapon + Health + Utility Loadout | Controls */}
-        <div className="flex items-end justify-between gap-4">
-          {isTouchDevice ? (
-            <div
-              onPointerDown={handleJoyStart}
-              onPointerMove={handleJoyMove}
-              onPointerUp={handleJoyEnd}
-              onPointerCancel={handleJoyEnd}
-              className="pointer-events-auto relative flex h-28 w-28 items-center justify-center rounded-full border-2 border-slate-600/80 bg-[#121821]/75"
-              aria-label="Movement joystick"
-            >
-              <div
-                className="h-12 w-12 rounded-full bg-amber-400/90 shadow-md"
-                style={{ transform: `translate(${joyKnob.x}px, ${joyKnob.y}px)` }}
-              />
-            </div>
-          ) : (
+        <div
+          className={`flex items-end gap-4 ${
+            mobileControlsEnabled ? 'justify-center pb-1' : 'justify-between'
+          }`}
+        >
+          {!mobileControlsEnabled && (
             <div className="rounded-lg border border-slate-700/80 bg-[#121821]/92 p-2 shadow-lg">
               <svg
                 width="116"
@@ -4866,8 +5068,12 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
           )}
 
           {/* Bottom-Center: Swap Prompt + Active Buffs + Compact Weapon / Health / Utility Bar */}
-          <div className="flex flex-col items-center gap-2">
-            {hud.swapPrompt && (
+          <div
+            className={`flex-col items-center gap-2 ${
+              mobileControlsEnabled ? 'hidden md:flex' : 'flex'
+            }`}
+          >
+            {!mobileControlsEnabled && hud.swapPrompt && (
               <button
                 type="button"
                 onClick={() => {
@@ -4889,18 +5095,22 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               </button>
             )}
 
-            {!hud.swapPrompt && !hud.inCover && hud.canSnapCover && !hud.isDowned && (
-              <button
-                type="button"
-                onClick={() => {
-                  justPressedCoverRef.current = true;
-                }}
-                className="pointer-events-auto inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/65 bg-[#0F1F1B]/94 px-3 py-1 text-xs font-bold text-emerald-300 shadow-md transition-colors hover:bg-emerald-950"
-              >
-                <Shield className="h-3.5 w-3.5 text-emerald-400" />
-                <span>[C] Take Cover Behind Block (-35% DMG)</span>
-              </button>
-            )}
+            {!mobileControlsEnabled &&
+              !hud.swapPrompt &&
+              !hud.inCover &&
+              hud.canSnapCover &&
+              !hud.isDowned && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    justPressedCoverRef.current = true;
+                  }}
+                  className="pointer-events-auto inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/65 bg-[#0F1F1B]/94 px-3 py-1 text-xs font-bold text-emerald-300 shadow-md transition-colors hover:bg-emerald-950"
+                >
+                  <Shield className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>[C] Take Cover Behind Block (-35% DMG)</span>
+                </button>
+              )}
 
             {(hud.speedBoostSec > 0 || hud.damageBoostSec > 0) && (
               <div className="flex items-center gap-3 text-xs font-semibold">
@@ -4919,21 +5129,33 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               </div>
             )}
 
-            <div className="flex items-center gap-3 rounded-lg border border-slate-700/80 bg-[#121821]/92 px-3.5 py-2.5 shadow-lg">
+            <div
+              className={`flex items-center rounded-lg border border-slate-700/80 bg-[#121821]/92 shadow-lg ${
+                mobileControlsEnabled ? 'gap-2 px-2.5 py-1.5' : 'gap-3 px-3.5 py-2.5'
+              }`}
+            >
               {/* Equipped Primary Graphic Gun Slot */}
               <div
-                className="flex min-w-[168px] items-center gap-2.5 rounded-md border px-2.5 py-1.5"
+                className={`flex items-center rounded-md border ${
+                  mobileControlsEnabled
+                    ? 'min-w-[126px] gap-1.5 px-2 py-1'
+                    : 'min-w-[168px] gap-2.5 px-2.5 py-1.5'
+                }`}
                 style={{
                   borderColor: equippedRarityMeta.border,
                   backgroundColor: equippedRarityMeta.bg,
                 }}
               >
-                <div className="flex h-10 w-14 shrink-0 items-center justify-center rounded bg-[#0B1018]/85 px-1">
+                <div
+                  className={`flex shrink-0 items-center justify-center rounded bg-[#0B1018]/85 px-1 ${
+                    mobileControlsEnabled ? 'h-8 w-11' : 'h-10 w-14'
+                  }`}
+                >
                   <WeaponGraphicSvg
                     category={hud.weaponCategory}
                     upgradeLevel={hud.weaponUpgradeLevel}
                     rarity={hud.weaponRarity}
-                    className="h-8 w-full"
+                    className={mobileControlsEnabled ? 'h-6 w-full' : 'h-8 w-full'}
                     compact
                   />
                 </div>
@@ -4950,7 +5172,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                       className="rounded bg-slate-900/90 px-1 py-0.2 font-mono text-[9px] font-extrabold tabular-nums"
                       style={{ color: getGunUpgradeTier(hud.weaponUpgradeLevel).accent }}
                     >
-                      {getGunUpgradeTier(hud.weaponUpgradeLevel).code} · {localSpec.damage} DMG
+                      {getGunUpgradeTier(hud.weaponUpgradeLevel).code} · {localSpec.damage}
                     </span>
                   </div>
                   <div className="mt-0.5 truncate text-xs font-bold text-slate-50">
@@ -4968,12 +5190,12 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 </div>
               </div>
 
-              <div className="h-10 w-px bg-slate-700/80" />
+              <div className="h-9 w-px bg-slate-700/80" />
 
               {/* HP & Shield Bars */}
-              <div className="w-36 sm:w-48">
+              <div className={mobileControlsEnabled ? 'w-24 sm:w-36' : 'w-36 sm:w-48'}>
                 <div className="mb-1 flex items-center justify-between text-xs font-semibold">
-                  <span className="text-slate-300 tabular-nums">HP {hud.health}/100</span>
+                  <span className="text-slate-300 tabular-nums">HP {hud.health}</span>
                   {hud.shield > 0 && (
                     <span className="inline-flex items-center gap-1 text-sky-400 tabular-nums">
                       <Shield className="h-3 w-3" />
@@ -5003,153 +5225,90 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 )}
               </div>
 
-              <div className="h-10 w-px bg-slate-700/80" />
+              {!mobileControlsEnabled && (
+                <>
+                  <div className="h-10 w-px bg-slate-700/80" />
 
-              {/* Area Utility Slot */}
-              <button
-                type="button"
-                onClick={() => {
-                  justPressedUtilityRef.current = true;
-                }}
-                disabled={hud.utilityCharges <= 0}
-                className="pointer-events-auto flex min-w-[84px] flex-col items-center rounded-md border px-2 py-1.5 text-center transition-colors disabled:opacity-45"
-                style={{
-                  borderColor:
-                    hud.utilityRarity !== 'none'
-                      ? RARITY_META[hud.utilityRarity].border
-                      : 'rgba(71, 85, 105, 0.7)',
-                  backgroundColor:
-                    hud.utilityRarity !== 'none'
-                      ? RARITY_META[hud.utilityRarity].bg
-                      : 'rgba(15, 23, 42, 0.7)',
-                }}
-              >
-                <div className="flex items-center gap-1 text-[10px] font-bold text-slate-200">
-                  <CloudFog className="h-3 w-3 text-purple-300" />
-                  <span>[Q] x{hud.utilityCharges}</span>
-                </div>
-                <span className="text-[10px] font-medium text-slate-300">Shroud</span>
-                <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-900">
-                  <div
-                    className="h-full bg-purple-400"
-                    style={{
-                      width: `${hud.utilityCharges > 0 ? Math.round(hud.utilityReadyPct * 100) : 0}%`,
+                  {/* Area Utility Slot */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      justPressedUtilityRef.current = true;
                     }}
-                  />
-                </div>
-              </button>
-
-              {/* Overdrive Shockwave Nova Ultimate Slot ([R]) */}
-              <button
-                type="button"
-                onClick={() => {
-                  justPressedNovaRef.current = true;
-                }}
-                disabled={hud.overdrivePct < 100}
-                className={`pointer-events-auto flex min-w-[84px] flex-col items-center rounded-md border px-2 py-1.5 text-center transition-all ${
-                  hud.overdrivePct >= 100
-                    ? 'animate-pulse border-cyan-400 bg-cyan-500/20 text-cyan-200 shadow-lg shadow-cyan-500/20 hover:bg-cyan-500/30'
-                    : 'border-slate-700/80 bg-slate-900/75 text-slate-400 opacity-85'
-                }`}
-              >
-                <div className="flex items-center gap-1 text-[10px] font-extrabold tabular-nums">
-                  <Sparkles className="h-3 w-3 text-cyan-300" />
-                  <span>{hud.overdrivePct >= 100 ? '[R] READY' : `${hud.overdrivePct}%`}</span>
-                </div>
-                <span className="text-[10px] font-bold tracking-wide">Nova</span>
-                <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-950">
-                  <div
-                    className="h-full transition-all duration-150"
+                    disabled={hud.utilityCharges <= 0}
+                    className="pointer-events-auto flex min-w-[84px] flex-col items-center rounded-md border px-2 py-1.5 text-center transition-colors disabled:opacity-45"
                     style={{
-                      width: `${hud.overdrivePct}%`,
-                      backgroundColor: hud.overdrivePct >= 100 ? '#22D3EE' : '#38BDF8',
+                      borderColor:
+                        hud.utilityRarity !== 'none'
+                          ? RARITY_META[hud.utilityRarity].border
+                          : 'rgba(71, 85, 105, 0.7)',
+                      backgroundColor:
+                        hud.utilityRarity !== 'none'
+                          ? RARITY_META[hud.utilityRarity].bg
+                          : 'rgba(15, 23, 42, 0.7)',
                     }}
-                  />
-                </div>
-              </button>
+                  >
+                    <div className="flex items-center gap-1 text-[10px] font-bold text-slate-200">
+                      <CloudFog className="h-3 w-3 text-purple-300" />
+                      <span>[Q] x{hud.utilityCharges}</span>
+                    </div>
+                    <span className="text-[10px] font-medium text-slate-300">Shroud</span>
+                    <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-900">
+                      <div
+                        className="h-full bg-purple-400"
+                        style={{
+                          width: `${hud.utilityCharges > 0 ? Math.round(hud.utilityReadyPct * 100) : 0}%`,
+                        }}
+                      />
+                    </div>
+                  </button>
 
-              {/* Dash Cooldown */}
-              <div className="hidden sm:flex flex-col items-center">
-                <span className="text-[10px] font-medium text-slate-400">Dash</span>
-                <div className="mt-1 h-2 w-10 overflow-hidden rounded-sm bg-slate-800">
-                  <div
-                    className="h-full bg-amber-400"
-                    style={{ width: `${Math.round(hud.dashReadyPct * 100)}%` }}
-                  />
-                </div>
-              </div>
+                  {/* Overdrive Shockwave Nova Ultimate Slot ([R]) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      justPressedNovaRef.current = true;
+                    }}
+                    disabled={hud.overdrivePct < 100}
+                    className={`pointer-events-auto flex min-w-[84px] flex-col items-center rounded-md border px-2 py-1.5 text-center transition-all ${
+                      hud.overdrivePct >= 100
+                        ? 'border-cyan-400 bg-cyan-500/20 text-cyan-200 shadow-lg shadow-cyan-500/20 hover:bg-cyan-500/30'
+                        : 'border-slate-700/80 bg-slate-900/75 text-slate-400 opacity-85'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1 text-[10px] font-extrabold tabular-nums">
+                      <Sparkles className="h-3 w-3 text-cyan-300" />
+                      <span>{hud.overdrivePct >= 100 ? '[R] READY' : `${hud.overdrivePct}%`}</span>
+                    </div>
+                    <span className="text-[10px] font-bold tracking-wide">Nova</span>
+                    <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-slate-950">
+                      <div
+                        className="h-full transition-all duration-150"
+                        style={{
+                          width: `${hud.overdrivePct}%`,
+                          backgroundColor: hud.overdrivePct >= 100 ? '#22D3EE' : '#38BDF8',
+                        }}
+                      />
+                    </div>
+                  </button>
+
+                  {/* Dash Cooldown */}
+                  <div className="hidden sm:flex flex-col items-center">
+                    <span className="text-[10px] font-medium text-slate-400">Dash</span>
+                    <div className="mt-1 h-2 w-10 overflow-hidden rounded-sm bg-slate-800">
+                      <div
+                        className="h-full bg-amber-400"
+                        style={{ width: `${Math.round(hud.dashReadyPct * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
-          {/* Bottom-Right: Mobile Touch Buttons OR Desktop Action Prompt */}
-          {isTouchDevice ? (
-            <div className="pointer-events-auto flex items-end gap-2.5">
-              {hud.overdrivePct >= 100 && (
-                <button
-                  type="button"
-                  onPointerDown={() => {
-                    justPressedNovaRef.current = true;
-                  }}
-                  className="flex h-14 w-14 animate-pulse flex-col items-center justify-center rounded-full border-2 border-cyan-300 bg-cyan-500 text-[11px] font-extrabold text-slate-950 shadow-lg active:scale-95"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  <span>NOVA</span>
-                </button>
-              )}
-              {hud.utilityCharges > 0 && (
-                <button
-                  type="button"
-                  onPointerDown={() => {
-                    justPressedUtilityRef.current = true;
-                  }}
-                  className="flex h-14 w-14 flex-col items-center justify-center rounded-full border-2 border-purple-400 bg-purple-950/90 text-[11px] font-bold text-purple-100 active:scale-95"
-                >
-                  <CloudFog className="h-4 w-4 text-purple-300" />
-                  <span>x{hud.utilityCharges}</span>
-                </button>
-              )}
-              {(hud.canSnapCover || hud.inCover) && (
-                <button
-                  type="button"
-                  onPointerDown={() => {
-                    justPressedCoverRef.current = true;
-                  }}
-                  className={`flex h-14 w-14 flex-col items-center justify-center rounded-full border-2 text-[11px] font-bold active:scale-95 ${
-                    hud.inCover
-                      ? 'border-emerald-300 bg-emerald-600 text-slate-950 shadow-lg'
-                      : 'border-emerald-500/80 bg-emerald-950/90 text-emerald-200'
-                  }`}
-                >
-                  <Shield className="h-4 w-4" />
-                  <span>Cover</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onPointerDown={() => {
-                  justPressedDashRef.current = true;
-                }}
-                className="flex h-14 w-14 flex-col items-center justify-center rounded-full border-2 border-slate-500 bg-[#1B2432]/90 text-xs font-bold text-slate-100 active:scale-95"
-              >
-                <Zap className="h-4 w-4 text-amber-400" />
-                <span>Dash</span>
-              </button>
-              <button
-                type="button"
-                onPointerDown={() => {
-                  justPressedAttackRef.current = true;
-                }}
-                className={`flex h-20 w-20 flex-col items-center justify-center rounded-full border-2 text-xs font-bold shadow-lg active:scale-95 ${
-                  hud.hasTargetInRange
-                    ? 'border-amber-300 bg-amber-500 text-slate-950'
-                    : 'border-slate-500 bg-[#1E293B]/92 text-slate-100'
-                }`}
-              >
-                <Swords className="h-6 w-6" />
-                <span>Attack</span>
-              </button>
-            </div>
-          ) : (
+          {/* Bottom-Right: Desktop Action Prompt (hidden when MobileController is active) */}
+          {!mobileControlsEnabled && (
             <div className="hidden lg:block text-right text-xs font-medium text-slate-400">
               <span>WASD Move</span>
               <span className="mx-1.5 opacity-50">·</span>
@@ -5175,6 +5334,37 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
         </div>
       </div>
 
+      {/* Dedicated Multi-Touch Mobile Gamepad Overlay */}
+      {mobileControlsEnabled &&
+        !paused &&
+        hud.roundPhase === 'active' &&
+        !hud.isDowned && (
+          <MobileController
+            weaponName={equippedWeaponMeta.name}
+            weaponRarity={hud.weaponRarity}
+            weaponReadyPct={hud.weaponReadyPct}
+            hasTargetInRange={hud.hasTargetInRange}
+            dashReadyPct={hud.dashReadyPct}
+            inCover={hud.inCover}
+            canSnapCover={hud.canSnapCover}
+            utilityCharges={hud.utilityCharges}
+            utilityReadyPct={hud.utilityReadyPct}
+            overdrivePct={hud.overdrivePct}
+            swapPrompt={hud.swapPrompt}
+            autoFire={autoFireEnabled}
+            viewportW={viewport.w}
+            viewportH={viewport.h}
+            onToggleAutoFire={handleToggleAutoFire}
+            onMoveVector={handleMobileMoveVector}
+            onFireChange={handleMobileFireChange}
+            onDash={handleMobileDash}
+            onCover={handleMobileCover}
+            onUtility={handleMobileUtility}
+            onNova={handleMobileNova}
+            onSwap={handleMobileSwap}
+          />
+        )}
+
       {/* Pre-Round 3-2-1-FIGHT! Staging Countdown Overlay */}
       {hud.roundPhase === 'active' && hud.roundCountdownSec > 0 && !paused && (
         <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center">
@@ -5195,8 +5385,8 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
 
       {/* Between-Round Phase Scorecard Intermission Overlay */}
       {hud.roundPhase === 'intermission' && hud.lastRoundResult && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#0B0F17]/78 p-4">
-          <div className="w-full max-w-xl rounded-xl border border-slate-700 bg-[#151C27]/96 p-5 shadow-2xl">
+        <div className="absolute inset-0 z-20 flex items-start sm:items-center justify-center overflow-y-auto overscroll-contain bg-[#0B0F17]/78 p-3 sm:p-4">
+          <div className="my-auto w-full max-w-xl rounded-xl border border-slate-700 bg-[#151C27]/96 p-4 sm:p-5 shadow-2xl">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400">
@@ -5349,8 +5539,8 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
 
       {/* Live [Tab] Per-Avatar Scoreboard Overlay */}
       {scoreboardOpen && hud.roundPhase === 'active' && !paused && (
-        <div className="absolute inset-0 z-25 flex items-center justify-center bg-[#0B0F17]/72 p-4">
-          <div className="w-full max-w-2xl rounded-xl border border-slate-700 bg-[#151C27]/96 p-5 shadow-2xl">
+        <div className="absolute inset-0 z-25 flex items-start sm:items-center justify-center overflow-y-auto overscroll-contain bg-[#0B0F17]/72 p-3 sm:p-4">
+          <div className="my-auto w-full max-w-2xl rounded-xl border border-slate-700 bg-[#151C27]/96 p-4 sm:p-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div>
                 <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400">
@@ -5364,13 +5554,13 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               <button
                 type="button"
                 onClick={() => setScoreboardOpen(false)}
-                className="rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:bg-slate-700"
+                className="rounded-md border border-slate-700 bg-slate-800 px-2.5 py-1 text-xs font-semibold text-slate-300 hover:bg-slate-700 whitespace-nowrap"
               >
                 Close [Tab]
               </button>
             </div>
 
-            <div className="mt-3 overflow-hidden rounded-lg border border-slate-700/80 bg-[#0F151F]">
+            <div className="mt-3 overflow-x-auto rounded-lg border border-slate-700/80 bg-[#0F151F]">
               <table className="w-full text-left text-xs">
                 <thead className="border-b border-slate-800 bg-slate-900/80 text-[10px] uppercase tracking-wider text-slate-400">
                   <tr>
@@ -5462,8 +5652,8 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
 
       {/* Pause Modal */}
       {paused && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#0B0F17]/80 p-4">
-          <div className="w-full max-w-sm rounded-xl border border-slate-700 bg-[#161D28] p-6 shadow-2xl">
+        <div className="absolute inset-0 z-30 flex items-start sm:items-center justify-center overflow-y-auto overscroll-contain bg-[#0B0F17]/80 p-4">
+          <div className="my-auto w-full max-w-sm rounded-xl border border-slate-700 bg-[#161D28] p-6 shadow-2xl">
             <h2 className="font-display text-3xl font-bold tracking-wide text-slate-50">
               Match Paused
             </h2>

@@ -85,16 +85,16 @@ export const LobbyModal: React.FC<LobbyModalProps> = ({
       <TitleBackdropArena />
       <div className="pointer-events-none absolute inset-0 bg-[#0B0F17]/84" />
 
-      <div className="relative z-10 flex h-full w-full items-center justify-center overflow-y-auto p-4 sm:p-8">
-        <div className="w-full max-w-4xl rounded-xl border border-slate-700/90 bg-[#141B26] p-6 shadow-2xl sm:p-8">
+      <div className="relative z-10 flex h-full w-full items-start sm:items-center justify-center overflow-y-auto overscroll-contain p-3 sm:p-6 lg:p-8">
+        <div className="my-auto w-full max-w-4xl rounded-xl border border-slate-700/90 bg-[#141B26] p-4 shadow-2xl sm:p-7">
           {/* Header Row: Room Code + Actions */}
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4 sm:pb-5">
             <div>
               <div className="text-xs font-semibold text-slate-400">
                 {isTdm ? 'Team Deathmatch Room' : '4-Round Survival Room'} · {room.totalRounds} Rounds · {players.length}/{room.maxPlayers} Players
               </div>
-              <div className="mt-1 flex items-center gap-3">
-                <span className="font-mono text-3xl font-bold tracking-[0.2em] text-amber-400 sm:text-4xl">
+              <div className="mt-1 flex flex-wrap items-center gap-2 sm:gap-3">
+                <span className="font-mono text-2xl font-bold tracking-[0.2em] text-amber-400 sm:text-4xl">
                   {room.roomId}
                 </span>
                 <button

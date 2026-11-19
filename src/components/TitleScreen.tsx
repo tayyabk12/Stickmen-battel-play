@@ -132,10 +132,19 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         }}
       />
 
-      {/* Full-Viewport Game Shell Layout */}
-      <div className="relative z-10 flex h-full w-full flex-col justify-between p-5 sm:p-8 lg:p-12">
+      {/* Full-Viewport Game Shell Layout (scroll-safe on short phones & edge-to-edge on tablets/laptops) */}
+      <div
+        className="relative z-10 h-full w-full overflow-y-auto overscroll-contain"
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          paddingLeft: 'env(safe-area-inset-left)',
+          paddingRight: 'env(safe-area-inset-right)',
+        }}
+      >
+        <div className="mx-auto flex min-h-full w-full max-w-7xl flex-col justify-between gap-6 p-4 sm:p-7 lg:p-10">
         {/* Top Utility Strip (Account + Audio — zero navbar bloat) */}
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3 text-xs font-medium text-slate-400">
             <span className="font-bold text-sky-300 tabular-nums">Lv.{progression.level}</span>
             <span aria-hidden="true">·</span>
@@ -232,7 +241,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             </div>
 
             {/* Active Fighter Summary + Customize Trigger */}
-            <div className="flex items-center justify-between gap-4 border-y border-slate-800/90 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-y border-slate-800/90 py-3">
               <div className="flex items-center gap-3.5">
                 <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-slate-700/80 bg-[#141B26]/90">
                   <StickFigurePreview
@@ -289,24 +298,26 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => onChangeGameMode('tdm')}
-                  className={`rounded-md px-3 py-2 text-xs font-bold transition-colors whitespace-nowrap ${
+                  className={`rounded-md px-2 sm:px-3 py-2 text-xs font-bold transition-colors whitespace-nowrap ${
                     selectedGameMode === 'tdm'
                       ? 'bg-slate-700/90 text-white shadow-sm'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  Team Deathmatch (4 Rds)
+                  <span className="sm:hidden">TDM (4 Rds)</span>
+                  <span className="hidden sm:inline">Team Deathmatch (4 Rds)</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => onChangeGameMode('survival')}
-                  className={`rounded-md px-3 py-2 text-xs font-bold transition-colors whitespace-nowrap ${
+                  className={`rounded-md px-2 sm:px-3 py-2 text-xs font-bold transition-colors whitespace-nowrap ${
                     selectedGameMode === 'survival'
                       ? 'bg-slate-700/90 text-white shadow-sm'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  Survival Points (4 Rds)
+                  <span className="sm:hidden">Survival (4 Rds)</span>
+                  <span className="hidden sm:inline">Survival Points (4 Rds)</span>
                 </button>
               </div>
 
@@ -424,20 +435,24 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         </div>
 
         {/* Single Flat Control-Hint Line */}
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-medium text-slate-400">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-medium text-slate-400">
+          <div className="hidden md:block">
             WASD Move · Shift Dash · C Cover · Space / Click Fire · Q Shroud · E Swap · R Nova
+          </div>
+          <div className="md:hidden">
+            Touch Joystick + Fire / Dash / Cover / Nova Pad auto-enabled on mobile &amp; tablets
           </div>
           <div className="text-slate-500">
             Collect Gold Coins · Level Up · Upgrade Graphic Guns MK-I to MK-V
           </div>
         </div>
+        </div>
       </div>
 
       {/* Avatar Customizer Modal */}
       {showCustomizer && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#090D14]/82 p-4">
-          <div className="w-full max-w-md rounded-xl border border-slate-700 bg-[#151C27] p-6 shadow-2xl">
+        <div className="absolute inset-0 z-30 flex items-start sm:items-center justify-center overflow-y-auto overscroll-contain bg-[#090D14]/82 p-4">
+          <div className="my-auto w-full max-w-md rounded-xl border border-slate-700 bg-[#151C27] p-5 sm:p-6 shadow-2xl">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-2xl font-bold tracking-wide text-slate-50">
                 Customize Fighter

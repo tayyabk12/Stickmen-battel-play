@@ -42,8 +42,8 @@ export const MatchSummaryModal: React.FC<MatchSummaryModalProps> = ({
       : Math.min(100, Math.round((progression.xp / Math.max(1, nextLevelXp)) * 100));
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center overflow-y-auto bg-[#090D14]/88 p-4">
-      <div className="my-auto w-full max-w-3xl rounded-xl border border-slate-700 bg-[#151C27] p-6 shadow-2xl sm:p-7">
+    <div className="fixed inset-0 z-40 flex items-start sm:items-center justify-center overflow-y-auto overscroll-contain bg-[#090D14]/88 p-3 sm:p-4">
+      <div className="my-auto w-full max-w-3xl rounded-xl border border-slate-700 bg-[#151C27] p-4 shadow-2xl sm:p-7">
         {/* Match Outcome Header */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-5">
           <div className="flex items-center gap-3.5">
@@ -181,12 +181,12 @@ export const MatchSummaryModal: React.FC<MatchSummaryModalProps> = ({
 
         {/* Per-Avatar Calculated Leaderboard */}
         <div className="mt-5">
-          <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-400">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-1 text-xs font-semibold text-slate-400">
             <span>Per-Avatar Match Calculation</span>
-            <span>Kill +100 · Round Win +150 · Rare Vault +50 · 10 Dmg +1</span>
+            <span className="text-[11px]">Kill +100 · Round Win +150 · Rare Vault +50 · 10 Dmg +1</span>
           </div>
 
-          <div className="max-h-[260px] overflow-y-auto rounded-lg border border-slate-800 bg-[#10161F]">
+          <div className="max-h-[260px] overflow-auto rounded-lg border border-slate-800 bg-[#10161F]">
             <table className="w-full text-left text-xs">
               <thead className="sticky top-0 border-b border-slate-800 bg-[#131A24] text-[11px] font-semibold text-slate-400">
                 <tr>

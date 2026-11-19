@@ -562,7 +562,7 @@ function LastOneStandingApp() {
   };
 
   return (
-    <main className="relative h-screen w-screen overflow-hidden bg-[#0E131A]">
+    <main className="relative h-dvh w-full overflow-hidden bg-[#0E131A]">
       {screen === 'TITLE' && (
         <TitleScreen
           user={user}
