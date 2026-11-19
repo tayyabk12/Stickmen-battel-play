@@ -1,14 +1,34 @@
 import type { LootRarity, PickupType, WeaponCategory } from '../types/game';
 
-/**
- * Procedural Web Audio API sound synthesizer for LastOneStanding.
- * Zero external audio files; category-distinct weapon, utility, and rarity feedback.
- */
+export type KillSoundChoice = 'faaah' | 'haath_be' | 'random';
 
+export interface KillSoundOption {
+  id: KillSoundChoice;
+  label: string;
+  subtitle: string;
+}
+
+export const KILL_SOUND_OPTIONS: KillSoundOption[] = [
+  { id: 'faaah', label: 'Faaah!', subtitle: 'Classic punchy KO yell' },
+  { id: 'haath_be', label: 'Haath Be!', subtitle: 'Teri Maa Ki / Haath Be KO clip' },
+  { id: 'random', label: 'Random Mix', subtitle: 'Plays both KO sounds in rotation' },
+];
+
+/**
+ * Hybrid Web Audio API synthesizer + preloaded custom MP3 clip engine for LastOneStanding.
+ */
 class GameAudioEngine {
   private ctx: AudioContext | null = null;
+  private masterGain: GainNode | null = null;
   private muted: boolean = false;
+  private masterVolume: number = 0.85;
+  private voiceVolume: number = 0.9;
+  private sfxVolume: number = 0.8;
+  private killSound: KillSoundChoice = 'faaah';
+  private randomToggle: boolean = false;
+
   private faaahAudio: HTMLAudioElement | null = null;
+  private haathBeAudio: HTMLAudioElement | null = null;
   private mistriAudio: HTMLAudioElement | null = null;
   private chachaAudio: HTMLAudioElement | null = null;
   private gameStartAudio: HTMLAudioElement | null = null;
@@ -17,38 +37,135 @@ class GameAudioEngine {
 
   constructor() {
     try {
-      const saved = localStorage.getItem('los_muted');
-      if (saved === '1') this.muted = true;
+      const savedMute = localStorage.getItem('los_muted');
+      if (savedMute === '1') this.muted = true;
+
+      const savedKill = localStorage.getItem('los_kill_sound_v1');
+      if (savedKill === 'faaah' || savedKill === 'haath_be' || savedKill === 'random') {
+        this.killSound = savedKill;
+      }
+
+      const savedMaster = parseFloat(localStorage.getItem('los_master_vol_v1') ?? '');
+      if (!Number.isNaN(savedMaster)) {
+        this.masterVolume = Math.max(0, Math.min(1, savedMaster));
+      }
+
+      const savedVoice = parseFloat(localStorage.getItem('los_voice_vol_v1') ?? '');
+      if (!Number.isNaN(savedVoice)) {
+        this.voiceVolume = Math.max(0, Math.min(1, savedVoice));
+      }
+
+      const savedSfx = parseFloat(localStorage.getItem('los_sfx_vol_v1') ?? '');
+      if (!Number.isNaN(savedSfx)) {
+        this.sfxVolume = Math.max(0, Math.min(1, savedSfx));
+      }
     } catch {
       // Ignore storage access failures
     }
     this.preloadCustomClips();
   }
 
+  private getEffectiveClipVolume(base = 1): number {
+    return Math.max(0, Math.min(1, this.masterVolume * this.voiceVolume * base));
+  }
+
+  private syncLiveVolumes(): void {
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.setValueAtTime(
+        this.muted ? 0 : Math.max(0, Math.min(1, this.masterVolume * this.sfxVolume)),
+        this.ctx.currentTime
+      );
+    }
+    if (this.activeLongClip) {
+      try {
+        this.activeLongClip.volume = this.muted ? 0 : this.getEffectiveClipVolume(1);
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
   private preloadCustomClips(): void {
     if (typeof window === 'undefined' || typeof Audio === 'undefined') return;
     try {
-      this.faaahAudio = new Audio('/sounds/kill-enemy.mp3');
+      this.faaahAudio = new Audio('/sounds/faaah.mp3');
       this.faaahAudio.preload = 'auto';
-      this.faaahAudio.volume = 0.88;
+
+      this.haathBeAudio = new Audio('/sounds/kill-haath-be.mp3');
+      this.haathBeAudio.preload = 'auto';
 
       this.mistriAudio = new Audio('/assets/aistudio/mistri-man-jao_6VOMK5Ga_dd5a5d37.mp3');
       this.mistriAudio.preload = 'auto';
-      this.mistriAudio.volume = 0.88;
 
       this.chachaAudio = new Audio('/assets/aistudio/chacha-ahh_6T5NLJ4B_44a6b105.mp3');
       this.chachaAudio.preload = 'auto';
-      this.chachaAudio.volume = 0.9;
 
       this.gameStartAudio = new Audio('/sounds/game-start.mp3');
       this.gameStartAudio.preload = 'auto';
-      this.gameStartAudio.volume = 0.85;
 
       this.victorySongAudio = new Audio('/sounds/win-song.mp3');
       this.victorySongAudio.preload = 'auto';
-      this.victorySongAudio.volume = 0.85;
     } catch {
       // Ignore environments without HTMLAudioElement support
+    }
+  }
+
+  public getKillSound(): KillSoundChoice {
+    return this.killSound;
+  }
+
+  public setKillSound(choice: KillSoundChoice): void {
+    this.killSound = choice;
+    try {
+      localStorage.setItem('los_kill_sound_v1', choice);
+    } catch {
+      // Ignore
+    }
+  }
+
+  public getMasterVolume(): number {
+    return this.masterVolume;
+  }
+
+  public setMasterVolume(vol: number): void {
+    this.masterVolume = Math.max(0, Math.min(1, vol));
+    if (this.masterVolume > 0 && this.muted) {
+      this.setMuted(false);
+    } else {
+      this.syncLiveVolumes();
+    }
+    try {
+      localStorage.setItem('los_master_vol_v1', String(this.masterVolume));
+    } catch {
+      // Ignore
+    }
+  }
+
+  public getVoiceVolume(): number {
+    return this.voiceVolume;
+  }
+
+  public setVoiceVolume(vol: number): void {
+    this.voiceVolume = Math.max(0, Math.min(1, vol));
+    this.syncLiveVolumes();
+    try {
+      localStorage.setItem('los_voice_vol_v1', String(this.voiceVolume));
+    } catch {
+      // Ignore
+    }
+  }
+
+  public getSfxVolume(): number {
+    return this.sfxVolume;
+  }
+
+  public setSfxVolume(vol: number): void {
+    this.sfxVolume = Math.max(0, Math.min(1, vol));
+    this.syncLiveVolumes();
+    try {
+      localStorage.setItem('los_sfx_vol_v1', String(this.sfxVolume));
+    } catch {
+      // Ignore
     }
   }
 
@@ -63,7 +180,6 @@ class GameAudioEngine {
       this.activeLongClip = null;
     }
     for (const clip of [
-      this.faaahAudio,
       this.mistriAudio,
       this.chachaAudio,
       this.gameStartAudio,
@@ -80,17 +196,47 @@ class GameAudioEngine {
     }
   }
 
+  public previewKillSound(kind: 'faaah' | 'haath_be'): void {
+    if (typeof Audio === 'undefined') return;
+    if (this.muted) this.setMuted(false);
+    const vol = this.getEffectiveClipVolume(1);
+    if (vol <= 0.001) return;
+    try {
+      const template = kind === 'haath_be' ? this.haathBeAudio : this.faaahAudio;
+      const fallbackSrc = kind === 'haath_be' ? '/sounds/kill-haath-be.mp3' : '/sounds/faaah.mp3';
+      const clip = template
+        ? (template.cloneNode(true) as HTMLAudioElement)
+        : new Audio(fallbackSrc);
+      clip.volume = vol;
+      clip.play().catch(() => {});
+    } catch {
+      // Ignore autoplay restrictions
+    }
+  }
+
   public playKillFaaah(): void {
     if (this.muted || typeof Audio === 'undefined') return;
+    const vol = this.getEffectiveClipVolume(1);
+    if (vol <= 0.001) return;
+
+    let selected: 'faaah' | 'haath_be' = 'faaah';
+    if (this.killSound === 'haath_be') {
+      selected = 'haath_be';
+    } else if (this.killSound === 'random') {
+      this.randomToggle = !this.randomToggle;
+      selected = this.randomToggle ? 'haath_be' : 'faaah';
+    }
+
     try {
-      this.stopCustomClips();
-      if (!this.faaahAudio) {
-        this.faaahAudio = new Audio('/sounds/kill-enemy.mp3');
-      }
-      this.faaahAudio.volume = 0.88;
-      this.faaahAudio.currentTime = 0;
-      this.activeLongClip = this.faaahAudio;
-      this.faaahAudio.play().catch(() => {});
+      const template = selected === 'haath_be' ? this.haathBeAudio : this.faaahAudio;
+      const fallbackSrc =
+        selected === 'haath_be' ? '/sounds/kill-haath-be.mp3' : '/sounds/faaah.mp3';
+      // Clone from preloaded template so rapid double/triple kills fire crisply without cutting out
+      const clip = template
+        ? (template.cloneNode(true) as HTMLAudioElement)
+        : new Audio(fallbackSrc);
+      clip.volume = vol;
+      clip.play().catch(() => {});
     } catch {
       // Ignore autoplay restrictions
     }
@@ -98,12 +244,14 @@ class GameAudioEngine {
 
   public playMistriMaanJao(): void {
     if (this.muted || typeof Audio === 'undefined') return;
+    const vol = this.getEffectiveClipVolume(1);
+    if (vol <= 0.001) return;
     try {
       this.stopCustomClips();
       if (!this.mistriAudio) {
         this.mistriAudio = new Audio('/assets/aistudio/mistri-man-jao_6VOMK5Ga_dd5a5d37.mp3');
       }
-      this.mistriAudio.volume = 0.88;
+      this.mistriAudio.volume = vol;
       this.mistriAudio.currentTime = 0;
       this.activeLongClip = this.mistriAudio;
       this.mistriAudio.play().catch(() => {});
@@ -114,12 +262,14 @@ class GameAudioEngine {
 
   public playEnemyKilledUser(): void {
     if (this.muted || typeof Audio === 'undefined') return;
+    const vol = this.getEffectiveClipVolume(1);
+    if (vol <= 0.001) return;
     try {
       this.stopCustomClips();
       if (!this.chachaAudio) {
         this.chachaAudio = new Audio('/assets/aistudio/chacha-ahh_6T5NLJ4B_44a6b105.mp3');
       }
-      this.chachaAudio.volume = 0.9;
+      this.chachaAudio.volume = vol;
       this.chachaAudio.currentTime = 0;
       this.activeLongClip = this.chachaAudio;
       this.chachaAudio.play().catch(() => {});
@@ -130,12 +280,14 @@ class GameAudioEngine {
 
   public playGameStartMusic(): void {
     if (this.muted || typeof Audio === 'undefined') return;
+    const vol = this.getEffectiveClipVolume(0.95);
+    if (vol <= 0.001) return;
     try {
       this.stopCustomClips();
       if (!this.gameStartAudio) {
         this.gameStartAudio = new Audio('/sounds/game-start.mp3');
       }
-      this.gameStartAudio.volume = 0.85;
+      this.gameStartAudio.volume = vol;
       this.gameStartAudio.currentTime = 0;
       this.activeLongClip = this.gameStartAudio;
       this.gameStartAudio.play().catch(() => {});
@@ -146,12 +298,14 @@ class GameAudioEngine {
 
   public playVictorySong(): void {
     if (this.muted || typeof Audio === 'undefined') return;
+    const vol = this.getEffectiveClipVolume(0.95);
+    if (vol <= 0.001) return;
     try {
       this.stopCustomClips();
       if (!this.victorySongAudio) {
         this.victorySongAudio = new Audio('/sounds/win-song.mp3');
       }
-      this.victorySongAudio.volume = 0.85;
+      this.victorySongAudio.volume = vol;
       this.victorySongAudio.currentTime = 0;
       this.activeLongClip = this.victorySongAudio;
       this.victorySongAudio.play().catch(() => {});
@@ -169,6 +323,7 @@ class GameAudioEngine {
     if (val) {
       this.stopCustomClips();
     }
+    this.syncLiveVolumes();
     try {
       localStorage.setItem('los_muted', val ? '1' : '0');
     } catch {
@@ -183,6 +338,7 @@ class GameAudioEngine {
 
   private ensureContext(): AudioContext | null {
     if (this.muted) return null;
+    if (this.masterVolume * this.sfxVolume <= 0.001) return null;
     if (typeof window === 'undefined') return null;
     if (!this.ctx) {
       const AudioCtx =
@@ -190,11 +346,24 @@ class GameAudioEngine {
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!AudioCtx) return null;
       this.ctx = new AudioCtx();
+      this.masterGain = this.ctx.createGain();
+      this.masterGain.gain.value = Math.max(0, Math.min(1, this.masterVolume * this.sfxVolume));
+      this.masterGain.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
     }
+    if (this.masterGain) {
+      this.masterGain.gain.setValueAtTime(
+        Math.max(0, Math.min(1, this.masterVolume * this.sfxVolume)),
+        this.ctx.currentTime
+      );
+    }
     return this.ctx;
+  }
+
+  private getOutputNode(ctx: AudioContext): AudioNode {
+    return this.masterGain ?? ctx.destination;
   }
 
   public playWeaponFire(category: WeaponCategory, powered = false): void {
@@ -212,7 +381,7 @@ class GameAudioEngine {
       boomGain.gain.setValueAtTime(0.18, now);
       boomGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
       boom.connect(boomGain);
-      boomGain.connect(ctx.destination);
+      boomGain.connect(this.getOutputNode(ctx));
       boom.start(now);
       boom.stop(now + 0.16);
 
@@ -224,7 +393,7 @@ class GameAudioEngine {
       crackGain.gain.setValueAtTime(0.09, now);
       crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
       crack.connect(crackGain);
-      crackGain.connect(ctx.destination);
+      crackGain.connect(this.getOutputNode(ctx));
       crack.start(now);
       crack.stop(now + 0.07);
       return;
@@ -242,7 +411,7 @@ class GameAudioEngine {
         gain.gain.setValueAtTime(0.08, t);
         gain.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(this.getOutputNode(ctx));
         osc.start(t);
         osc.stop(t + 0.065);
       });
@@ -258,7 +427,7 @@ class GameAudioEngine {
     bodyGain.gain.setValueAtTime(0.15, now);
     bodyGain.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
     body.connect(bodyGain);
-    bodyGain.connect(ctx.destination);
+    bodyGain.connect(this.getOutputNode(ctx));
     body.start(now);
     body.stop(now + 0.27);
   }
@@ -277,7 +446,7 @@ class GameAudioEngine {
     gain.gain.setValueAtTime(0.13, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.getOutputNode(ctx));
     osc.start(now);
     osc.stop(now + 0.31);
   }
@@ -295,7 +464,7 @@ class GameAudioEngine {
     gain.gain.setValueAtTime(heavy ? 0.28 : 0.2, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + (heavy ? 0.19 : 0.14));
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.getOutputNode(ctx));
     osc.start(now);
     osc.stop(now + 0.2);
 
@@ -307,7 +476,7 @@ class GameAudioEngine {
     snapGain.gain.setValueAtTime(0.08, now);
     snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.055);
     snap.connect(snapGain);
-    snapGain.connect(ctx.destination);
+    snapGain.connect(this.getOutputNode(ctx));
     snap.start(now);
     snap.stop(now + 0.06);
   }
@@ -324,7 +493,7 @@ class GameAudioEngine {
     gain.gain.setValueAtTime(0.09, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.getOutputNode(ctx));
     osc.start(now);
     osc.stop(now + 0.11);
   }
@@ -341,7 +510,7 @@ class GameAudioEngine {
     gain.gain.setValueAtTime(0.14, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.095);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.getOutputNode(ctx));
     osc.start(now);
     osc.stop(now + 0.1);
   }
@@ -359,7 +528,7 @@ class GameAudioEngine {
     pingGain.gain.setValueAtTime(0.11, now);
     pingGain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
     ping.connect(pingGain);
-    pingGain.connect(ctx.destination);
+    pingGain.connect(this.getOutputNode(ctx));
     ping.start(now);
     ping.stop(now + 0.11);
 
@@ -372,7 +541,7 @@ class GameAudioEngine {
     thudGain.gain.setValueAtTime(0.15, now);
     thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
     thud.connect(thudGain);
-    thudGain.connect(ctx.destination);
+    thudGain.connect(this.getOutputNode(ctx));
     thud.start(now);
     thud.stop(now + 0.085);
   }
@@ -405,7 +574,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(rarity === 'rare' ? 0.16 : 0.12, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + (rarity === 'rare' ? 0.24 : 0.14));
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(t);
       osc.stop(t + (rarity === 'rare' ? 0.25 : 0.15));
     });
@@ -423,7 +592,7 @@ class GameAudioEngine {
     gain.gain.setValueAtTime(0.07, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.getOutputNode(ctx));
     osc.start(now);
     osc.stop(now + 0.11);
   }
@@ -442,7 +611,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(0.11, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(t);
       osc.stop(t + 0.17);
     });
@@ -462,7 +631,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(0.14, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(t);
       osc.stop(t + 0.25);
     });
@@ -482,7 +651,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(0.14, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(t);
       osc.stop(t + 0.32);
     });
@@ -501,7 +670,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(0.13, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(now);
       osc.stop(now + 0.12);
       return;
@@ -515,7 +684,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(idx === 0 ? 0.11 : 0.13, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(now);
       osc.stop(now + 0.38);
     });
@@ -540,7 +709,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(0.15, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(t);
       osc.stop(t + 0.3);
     });
@@ -559,7 +728,7 @@ class GameAudioEngine {
     subGain.gain.setValueAtTime(0.32, now);
     subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
     sub.connect(subGain);
-    subGain.connect(ctx.destination);
+    subGain.connect(this.getOutputNode(ctx));
     sub.start(now);
     sub.stop(now + 0.46);
 
@@ -572,7 +741,7 @@ class GameAudioEngine {
     sweepGain.gain.setValueAtTime(0.14, now);
     sweepGain.gain.exponentialRampToValueAtTime(0.001, now + 0.34);
     sweep.connect(sweepGain);
-    sweepGain.connect(ctx.destination);
+    sweepGain.connect(this.getOutputNode(ctx));
     sweep.start(now);
     sweep.stop(now + 0.35);
   }
@@ -589,7 +758,7 @@ class GameAudioEngine {
     gain.gain.setValueAtTime(0.15, now);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 0.19);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.getOutputNode(ctx));
     osc.start(now);
     osc.stop(now + 0.2);
   }
@@ -607,7 +776,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(0.15, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(t);
       osc.stop(t + 0.34);
     });
@@ -626,7 +795,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(0.12, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(t);
       osc.stop(t + 0.28);
     });
@@ -646,7 +815,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(big ? 0.14 : 0.11, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(t);
       osc.stop(t + 0.17);
     });
@@ -666,7 +835,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(0.16, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.36);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(t);
       osc.stop(t + 0.38);
     });
@@ -685,7 +854,7 @@ class GameAudioEngine {
     clickGain.gain.setValueAtTime(0.1, now);
     clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
     click.connect(clickGain);
-    clickGain.connect(ctx.destination);
+    clickGain.connect(this.getOutputNode(ctx));
     click.start(now);
     click.stop(now + 0.08);
 
@@ -699,7 +868,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(0.14, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(t);
       osc.stop(t + 0.3);
     });
@@ -720,7 +889,7 @@ class GameAudioEngine {
       gain.gain.setValueAtTime(0.1, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.getOutputNode(ctx));
       osc.start(t);
       osc.stop(t + 0.46);
     });

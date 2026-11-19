@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Shield,
   Skull,
+  SlidersHorizontal,
   Sparkles,
   Swords,
   Trophy,
@@ -121,6 +122,7 @@ import {
 import { StickFigureSvg } from './StickFigureSvg';
 import { GoldCoinSvg, WeaponGraphicSvg } from './WeaponGraphicSvg';
 import { MobileController } from './MobileController';
+import { SoundSettingsModal } from './SoundSettingsModal';
 
 const CONCRETE_TEXTURE_URL = '/src/assets/images/arena_concrete_texture_1795067428629.jpg';
 
@@ -302,6 +304,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
   onExitMatch,
 }) => {
   const [paused, setPaused] = useState(false);
+  const [soundSettingsOpen, setSoundSettingsOpen] = useState(false);
   const [scoreboardOpen, setScoreboardOpen] = useState(false);
   const [muted, setMuted] = useState(() => audioEngine.isMuted());
   const [copiedCode, setCopiedCode] = useState(false);
@@ -513,7 +516,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
   roomRef.current = room;
   roundDurationRef.current = roundDurationSec;
   totalRoundsRef.current = totalRounds;
-  pausedRef.current = paused;
+  pausedRef.current = paused || soundSettingsOpen;
 
   const areTeammates = (a: FighterEntity, b: FighterEntity): boolean =>
     gameMode === 'tdm' && a.team !== 'none' && a.team === b.team;
@@ -1739,7 +1742,10 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (scoreboardOpen) {
+        if (soundSettingsOpen) {
+          audioEngine.stopCustomClips();
+          setSoundSettingsOpen(false);
+        } else if (scoreboardOpen) {
           setScoreboardOpen(false);
         } else {
           setPaused((p) => !p);
@@ -1824,7 +1830,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [scoreboardOpen]);
+  }, [scoreboardOpen, soundSettingsOpen]);
 
   // Main 60fps simulation loop
   useEffect(() => {
@@ -5115,6 +5121,15 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
             )}
             <button
               type="button"
+              onClick={() => setSoundSettingsOpen(true)}
+              title="Sound Settings — Choose Kill Sound & Volume"
+              aria-label="Open sound settings"
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700/80 bg-[#121821]/92 text-slate-200 transition-colors hover:border-amber-400/70 hover:text-amber-300"
+            >
+              <SlidersHorizontal className="h-4 w-4 text-amber-400" />
+            </button>
+            <button
+              type="button"
               onClick={() => setMuted(audioEngine.toggleMute())}
               aria-label={muted ? 'Unmute audio' : 'Mute audio'}
               className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700/80 bg-[#121821]/92 text-slate-200 transition-colors hover:bg-slate-800"
@@ -5975,6 +5990,17 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 type="button"
                 onClick={() => {
                   setPaused(false);
+                  setSoundSettingsOpen(true);
+                }}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-amber-500/55 bg-amber-500/15 px-4 py-2.5 text-sm font-bold text-amber-300 transition-colors hover:bg-amber-500/25"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                Sound Settings
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPaused(false);
                   onExitMatch();
                 }}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-600 bg-slate-800/80 px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-700"
@@ -5985,6 +6011,14 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* In-Game Sound Settings Modal */}
+      {soundSettingsOpen && (
+        <SoundSettingsModal
+          onClose={() => setSoundSettingsOpen(false)}
+          onMuteChanged={(m) => setMuted(m)}
+        />
       )}
     </div>
   );

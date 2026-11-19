@@ -31,6 +31,7 @@ import { audioEngine } from '../lib/audio';
 import { StickFigurePreview } from './StickFigureSvg';
 import { TitleBackdropArena } from './TitleBackdropArena';
 import { GoldCoinSvg } from './WeaponGraphicSvg';
+import { SoundSettingsModal } from './SoundSettingsModal';
 
 interface TitleScreenProps {
   user: User | null;
@@ -83,6 +84,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 }) => {
   const [roomCodeInput, setRoomCodeInput] = useState(initialRoomCode);
   const [showCustomizer, setShowCustomizer] = useState(false);
+  const [showSoundSettings, setShowSoundSettings] = useState(false);
   const [muted, setMuted] = useState(() => audioEngine.isMuted());
 
   const upgradableCount = (['close', 'mid', 'long'] as WeaponCategory[]).filter((cat) => {
@@ -100,7 +102,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || showCustomizer || armoryOpen) return;
+      if (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        showCustomizer ||
+        showSoundSettings ||
+        armoryOpen
+      ) {
+        return;
+      }
       if (e.key === 'Enter') {
         e.preventDefault();
         onStartSolo();
@@ -108,7 +118,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onStartSolo, showCustomizer, armoryOpen]);
+  }, [onStartSolo, showCustomizer, showSoundSettings, armoryOpen]);
 
   const handleJoinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -175,6 +185,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 Sign Out
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setShowSoundSettings(true)}
+              title="Sound Settings — Choose Kill Sound & Volume"
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-700/80 bg-[#141B26]/90 px-3 text-xs font-bold text-slate-200 transition-colors hover:border-amber-400/70 hover:text-amber-300 whitespace-nowrap shrink-0"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5 text-amber-400" />
+              <span>Sound</span>
+            </button>
             <button
               type="button"
               onClick={() => setMuted(audioEngine.toggleMute())}
@@ -566,6 +585,13 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {showSoundSettings && (
+        <SoundSettingsModal
+          onClose={() => setShowSoundSettings(false)}
+          onMuteChanged={(m) => setMuted(m)}
+        />
       )}
     </div>
   );
