@@ -1,0 +1,614 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Player avatar customization and non-PII match statistics saved per authenticated Firebase user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the player."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20,
+          "description": "Chosen in-game stick-figure nickname."
+        },
+        "color": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "description": "Hex color of the stick-figure avatar."
+        },
+        "accessory": {
+          "type": "string",
+          "enum": ["none", "crown", "headband", "horns", "halo", "tophat", "mohawk", "shades"],
+          "description": "Equipped cosmetic accessory icon."
+        },
+        "wins": {
+          "type": "number",
+          "description": "Total matches won."
+        },
+        "matchesPlayed": {
+          "type": "number",
+          "description": "Total matches played."
+        },
+        "coins": {
+          "type": "number",
+          "description": "Earned arena gold coins used to upgrade weapon power (0 to 1000000)."
+        },
+        "xp": {
+          "type": "number",
+          "description": "Current experience points toward next player level (0 to 100000)."
+        },
+        "level": {
+          "type": "number",
+          "description": "Current player progression level (1 to 50)."
+        },
+        "gunCloseLevel": {
+          "type": "number",
+          "description": "Power upgrade tier (1 to 5) of the Close-Range Viper Scattergun."
+        },
+        "gunMidLevel": {
+          "type": "number",
+          "description": "Power upgrade tier (1 to 5) of the Mid-Range Pulse Carbine."
+        },
+        "gunLongLevel": {
+          "type": "number",
+          "description": "Power upgrade tier (1 to 5) of the Long-Range Horizon Rail Sniper."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was last updated."
+        }
+      },
+      "required": ["userId", "displayName", "color", "accessory", "wins", "matchesPlayed", "createdAt", "updatedAt"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "Private room-code survival arena session shared between Web and Android clients.",
+      "type": "object",
+      "properties": {
+        "roomId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 8,
+          "pattern": "^[A-Z0-9]{4,8}$",
+          "description": "Short uppercase room code used to join."
+        },
+        "hostId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the room host controlling zone ticks and match transitions."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["lobby", "playing", "ended"],
+          "description": "Lifecycle phase of the room."
+        },
+        "gameMode": {
+          "type": "string",
+          "enum": ["tdm", "survival"],
+          "description": "Match format: Team Deathmatch (2 teams, timed 4-round respawns) or 4-round Free-for-All Survival."
+        },
+        "totalRounds": {
+          "type": "number",
+          "description": "Total rounds per match (default 4, range 1 to 6)."
+        },
+        "currentRound": {
+          "type": "number",
+          "description": "Active 1-based round number (1 to totalRounds)."
+        },
+        "roundDurationSec": {
+          "type": "number",
+          "description": "Duration of each timed round phase in seconds (30 to 90)."
+        },
+        "roundPhase": {
+          "type": "string",
+          "enum": ["active", "intermission"],
+          "description": "Whether combat is live or showing the between-round scorecard."
+        },
+        "redScore": {
+          "type": "number",
+          "description": "Cumulative Team Crimson points in TDM."
+        },
+        "blueScore": {
+          "type": "number",
+          "description": "Cumulative Team Cobalt points in TDM."
+        },
+        "redRoundsWon": {
+          "type": "number",
+          "description": "Number of rounds won by Team Crimson."
+        },
+        "blueRoundsWon": {
+          "type": "number",
+          "description": "Number of rounds won by Team Cobalt."
+        },
+        "arenaRadius": {
+          "type": "number",
+          "description": "Total circular arena radius in world units."
+        },
+        "zoneRadius": {
+          "type": "number",
+          "description": "Current safe-zone radius in world units."
+        },
+        "zoneTargetRadius": {
+          "type": "number",
+          "description": "Target safe-zone radius for the current shrink phase."
+        },
+        "zoneCenterX": {
+          "type": "number",
+          "description": "Safe-zone center X coordinate."
+        },
+        "zoneCenterY": {
+          "type": "number",
+          "description": "Safe-zone center Y coordinate."
+        },
+        "matchDurationSec": {
+          "type": "number",
+          "description": "Total match duration across all rounds in seconds (90 to 300)."
+        },
+        "timeRemainingSec": {
+          "type": "number",
+          "description": "Remaining time in the current round phase in seconds."
+        },
+        "maxPlayers": {
+          "type": "number",
+          "description": "Maximum allowed players in room (2 to 8)."
+        },
+        "winnerId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "UID or winning team ID once match ends, or empty string."
+        },
+        "winnerName": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "Display name of the winning player or team once match ends, or empty string."
+        },
+        "seed": {
+          "type": "number",
+          "description": "Deterministic integer seed for identical obstacle layout across Web and Android."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of room creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last room state update."
+        }
+      },
+      "required": [
+        "roomId",
+        "hostId",
+        "status",
+        "gameMode",
+        "totalRounds",
+        "currentRound",
+        "roundDurationSec",
+        "roundPhase",
+        "redScore",
+        "blueScore",
+        "redRoundsWon",
+        "blueRoundsWon",
+        "arenaRadius",
+        "zoneRadius",
+        "zoneTargetRadius",
+        "zoneCenterX",
+        "zoneCenterY",
+        "matchDurationSec",
+        "timeRemainingSec",
+        "maxPlayers",
+        "winnerId",
+        "winnerName",
+        "seed",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "RoomPlayer": {
+      "title": "RoomPlayer",
+      "description": "Per-player synced position, velocity, health, team, per-avatar score, and animation state updated at 2-5 Hz for smooth client-side interpolation.",
+      "type": "object",
+      "properties": {
+        "playerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the player."
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 8,
+          "pattern": "^[A-Z0-9]{4,8}$",
+          "description": "Parent room code."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20,
+          "description": "Player display name."
+        },
+        "color": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "description": "Hex color of stick figure."
+        },
+        "accessory": {
+          "type": "string",
+          "enum": ["none", "crown", "headband", "horns", "halo", "tophat", "mohawk", "shades"],
+          "description": "Cosmetic accessory icon."
+        },
+        "team": {
+          "type": "string",
+          "enum": ["none", "red", "blue"],
+          "description": "Assigned TDM team ('red' Crimson, 'blue' Cobalt) or 'none' for FFA Survival."
+        },
+        "x": {
+          "type": "number",
+          "description": "World X coordinate (-900 to 900)."
+        },
+        "y": {
+          "type": "number",
+          "description": "World Y coordinate (-900 to 900)."
+        },
+        "vx": {
+          "type": "number",
+          "description": "Velocity X for dead-reckoning interpolation."
+        },
+        "vy": {
+          "type": "number",
+          "description": "Velocity Y for dead-reckoning interpolation."
+        },
+        "facing": {
+          "type": "number",
+          "description": "Facing angle in radians."
+        },
+        "animState": {
+          "type": "string",
+          "enum": ["idle", "walk", "run", "attack", "hit", "downed"],
+          "description": "Procedural joint animation state."
+        },
+        "health": {
+          "type": "number",
+          "description": "Current health points (0 to 100)."
+        },
+        "shield": {
+          "type": "number",
+          "description": "Current shield points (0 to 50)."
+        },
+        "speedBoostSec": {
+          "type": "number",
+          "description": "Remaining speed boost seconds (0 to 15)."
+        },
+        "damageBoostSec": {
+          "type": "number",
+          "description": "Remaining damage boost seconds (0 to 15)."
+        },
+        "kills": {
+          "type": "number",
+          "description": "Cumulative eliminations scored by this avatar across all rounds."
+        },
+        "deaths": {
+          "type": "number",
+          "description": "Cumulative deaths suffered by this avatar across all rounds."
+        },
+        "points": {
+          "type": "number",
+          "description": "Calculated cumulative match points for this avatar."
+        },
+        "damageDealt": {
+          "type": "number",
+          "description": "Cumulative damage dealt by this avatar across all rounds."
+        },
+        "roundWins": {
+          "type": "number",
+          "description": "Rounds won by this avatar or their team."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["alive", "downed"],
+          "description": "Survival status in the current round."
+        },
+        "isReady": {
+          "type": "boolean",
+          "description": "Lobby ready toggle."
+        },
+        "lastHitBy": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "UID of last attacker or empty string."
+        },
+        "lastAttackSeq": {
+          "type": "number",
+          "description": "Monotonic attack counter to trigger remote swing VFX once per attack."
+        },
+        "weaponCategory": {
+          "type": "string",
+          "enum": ["close", "mid", "long"],
+          "description": "Currently equipped primary weapon category."
+        },
+        "weaponRarity": {
+          "type": "string",
+          "enum": ["common", "uncommon", "rare"],
+          "description": "Rarity tier of the equipped primary weapon."
+        },
+        "utilityRarity": {
+          "type": "string",
+          "enum": ["none", "uncommon", "rare"],
+          "description": "Rarity tier of carried area/utility throwable."
+        },
+        "utilityCharges": {
+          "type": "number",
+          "description": "Remaining area/utility throwable charges (0 to 5)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when player joined room."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last 2-5 Hz position sync."
+        }
+      },
+      "required": [
+        "playerId",
+        "roomId",
+        "displayName",
+        "color",
+        "accessory",
+        "team",
+        "x",
+        "y",
+        "vx",
+        "vy",
+        "facing",
+        "animState",
+        "health",
+        "shield",
+        "speedBoostSec",
+        "damageBoostSec",
+        "kills",
+        "deaths",
+        "points",
+        "damageDealt",
+        "roundWins",
+        "status",
+        "isReady",
+        "lastHitBy",
+        "lastAttackSeq",
+        "weaponCategory",
+        "weaponRarity",
+        "utilityRarity",
+        "utilityCharges",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Pickup": {
+      "title": "Pickup",
+      "description": "Scattered arena pickup item spawned by host and claimed by any player in proximity.",
+      "type": "object",
+      "properties": {
+        "pickupId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique pickup identifier."
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 8,
+          "pattern": "^[A-Z0-9]{4,8}$",
+          "description": "Parent room code."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["medkit", "shield", "speed", "power", "close", "mid", "long", "utility"],
+          "description": "Pickup category: consumable buff or weapon/utility gear."
+        },
+        "rarity": {
+          "type": "string",
+          "enum": ["common", "uncommon", "rare"],
+          "description": "Loot rarity tier (common white, uncommon green, rare gold)."
+        },
+        "zone": {
+          "type": "string",
+          "enum": ["resource", "dense", "open", "flank"],
+          "description": "Arena map zone where this loot spawned."
+        },
+        "x": {
+          "type": "number",
+          "description": "World X coordinate."
+        },
+        "y": {
+          "type": "number",
+          "description": "World Y coordinate."
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether the pickup is still available on the floor."
+        },
+        "claimedBy": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "UID of player who claimed the pickup, or empty string."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when spawned."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when last updated."
+        }
+      },
+      "required": ["pickupId", "roomId", "type", "rarity", "zone", "x", "y", "active", "claimedBy", "createdAt", "updatedAt"]
+    },
+    "CombatHit": {
+      "title": "CombatHit",
+      "description": "Immutable proximity-tap combat hit event written by attacker and consumed by target client.",
+      "type": "object",
+      "properties": {
+        "hitId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique hit event ID."
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 8,
+          "pattern": "^[A-Z0-9]{4,8}$",
+          "description": "Parent room code."
+        },
+        "attackerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of attacking player."
+        },
+        "targetId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of targeted player."
+        },
+        "damage": {
+          "type": "number",
+          "description": "Hit damage (1 to 95)."
+        },
+        "knockbackX": {
+          "type": "number",
+          "description": "Knockback velocity X (-400 to 400)."
+        },
+        "knockbackY": {
+          "type": "number",
+          "description": "Knockback velocity Y (-400 to 400)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of hit event."
+        }
+      },
+      "required": ["hitId", "roomId", "attackerId", "targetId", "damage", "knockbackX", "knockbackY", "createdAt"]
+    },
+    "ArenaHazard": {
+      "title": "ArenaHazard",
+      "description": "Deployed area/utility smoke & snare cloud that blocks visibility and slows movement without direct damage.",
+      "type": "object",
+      "properties": {
+        "hazardId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique hazard event ID."
+        },
+        "roomId": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 8,
+          "pattern": "^[A-Z0-9]{4,8}$",
+          "description": "Parent room code."
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of player who deployed the utility."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["shroud_snare"],
+          "description": "Type of non-damaging area utility."
+        },
+        "rarity": {
+          "type": "string",
+          "enum": ["uncommon", "rare"],
+          "description": "Rarity tier scaling radius, slow strength, and duration."
+        },
+        "x": {
+          "type": "number",
+          "description": "World X coordinate (-850 to 850)."
+        },
+        "y": {
+          "type": "number",
+          "description": "World Y coordinate (-850 to 850)."
+        },
+        "radius": {
+          "type": "number",
+          "description": "Effect radius in world units (60 to 160)."
+        },
+        "durationSec": {
+          "type": "number",
+          "description": "Active lifetime in seconds (4 to 12)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when deployed."
+        }
+      },
+      "required": ["hazardId", "roomId", "ownerId", "kind", "rarity", "x", "y", "radius", "durationSec", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Per-user stick-figure customization profile (color, accessory, nickname, match counters)."
+    },
+    "/rooms/{roomId}": {
+      "schema": { "$ref": "#/entities/Room" },
+      "description": "Private room state, shrinking safe-zone geometry, timer, and winner outcome."
+    },
+    "/rooms/{roomId}/players/{playerId}": {
+      "schema": { "$ref": "#/entities/RoomPlayer" },
+      "description": "Real-time 2-5 Hz player position, velocity, health, weapon loadout, and animation state inside a room."
+    },
+    "/rooms/{roomId}/pickups/{pickupId}": {
+      "schema": { "$ref": "#/entities/Pickup" },
+      "description": "Zone-seeded floor weapons, utility canisters, and consumables with rarity tiers."
+    },
+    "/rooms/{roomId}/hits/{hitId}": {
+      "schema": { "$ref": "#/entities/CombatHit" },
+      "description": "Immutable proximity/range combat hit events emitted during active matches."
+    },
+    "/rooms/{roomId}/hazards/{hazardId}": {
+      "schema": { "$ref": "#/entities/ArenaHazard" },
+      "description": "Immutable deployed smoke & snare utility fields active during a match."
+    }
+  }
+}

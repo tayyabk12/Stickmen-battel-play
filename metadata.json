@@ -1,0 +1,6 @@
+{
+  "name": "LastOneStanding",
+  "description": "2D top-down stick-figure survival arena game with procedural joint-based animations, shrinking storm zone, pickups, proximity combat, and Firestore multiplayer sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
