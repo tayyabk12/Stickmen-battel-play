@@ -10,6 +10,8 @@ import {
   Flame,
   Gamepad2,
   LogOut,
+  Maximize2,
+  Minimize2,
   Pause,
   Play,
   Repeat2,
@@ -308,6 +310,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
   const [scoreboardOpen, setScoreboardOpen] = useState(false);
   const [muted, setMuted] = useState(() => audioEngine.isMuted());
   const [copiedCode, setCopiedCode] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewport, setViewport] = useState(() => ({
     w: typeof window !== 'undefined' ? window.innerWidth : 1280,
     h: typeof window !== 'undefined' ? window.innerHeight : 720,
@@ -3738,18 +3741,20 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, gameMode, localUserId, onMatchComplete]);
 
-  // Aspect-ratio-aware SVG camera math (balances field of view across phone portrait/landscape, tablet, and laptop)
+  // Aspect-ratio-aware SVG camera math — zooms in closer on phones so fighters & combat are bold and crisp
   const localFighter = fightersRef.current.get(localUserId);
   const shortSide = Math.max(240, Math.min(viewport.w, viewport.h));
   const longSide = Math.max(320, Math.max(viewport.w, viewport.h));
-  const targetShortWorld = shortSide < 460 ? 640 : shortSide < 780 ? 700 : 740;
+  const isShortFrame = viewport.h < 500;
+  const isCompactPhone = mobileControlsEnabled && (viewport.w < 768 || viewport.h < 520);
+  const targetShortWorld =
+    viewport.h < 420 ? 390 : shortSide < 480 ? 470 : shortSide < 780 ? 640 : 720;
   const fitByShort = shortSide / targetShortWorld;
-  const fitByLong = longSide / 1380;
-  const baseZoom = Math.max(0.48, Math.min(1.12, Math.min(fitByShort, fitByLong * 1.18)));
+  const fitByLong = longSide / (isShortFrame ? 1040 : 1340);
+  const baseZoom = Math.max(0.62, Math.min(1.16, Math.min(fitByShort, fitByLong * 1.16)));
   const zoom = localFighter?.weaponCategory === 'long' ? baseZoom * 0.88 : baseZoom;
   const viewW = viewport.w / zoom;
   const viewH = viewport.h / zoom;
-  const isShortFrame = viewport.h < 500;
   const shakeX =
     cameraRef.current.shake > 0 ? (Math.random() - 0.5) * cameraRef.current.shake * 2 : 0;
   const shakeY =
@@ -3866,6 +3871,26 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     navigator.clipboard?.writeText(room.roomId).catch(() => {});
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 1600);
+  };
+
+  useEffect(() => {
+    const onFsChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    try {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen?.().catch(() => {});
+      } else {
+        document.exitFullscreen?.().catch(() => {});
+      }
+    } catch {
+      // Ignore browsers where Fullscreen API is unavailable
+    }
   };
 
   const pulseWave = (Math.sin(totalElapsedRef.current * 4.5) + 1) * 0.5;
@@ -4782,29 +4807,39 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
         className="pointer-events-none absolute inset-0 flex flex-col justify-between"
         style={{
           paddingTop: isShortFrame
-            ? 'max(0.5rem, env(safe-area-inset-top))'
+            ? 'max(0.35rem, env(safe-area-inset-top))'
             : 'max(0.75rem, env(safe-area-inset-top))',
           paddingBottom: isShortFrame
-            ? 'max(0.5rem, env(safe-area-inset-bottom))'
+            ? 'max(0.35rem, env(safe-area-inset-bottom))'
             : 'max(0.75rem, env(safe-area-inset-bottom))',
-          paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
-          paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
+          paddingLeft: isShortFrame
+            ? 'max(0.5rem, env(safe-area-inset-left))'
+            : 'max(0.75rem, env(safe-area-inset-left))',
+          paddingRight: isShortFrame
+            ? 'max(0.5rem, env(safe-area-inset-right))'
+            : 'max(0.75rem, env(safe-area-inset-right))',
         }}
       >
         {/* Top Row: Left Round & Timing Zone | Center TDM / Survival Scoreboard | Right Controls */}
-        <div className="flex flex-wrap items-start justify-between gap-2 md:flex-nowrap md:gap-3">
+        <div
+          className={`flex items-start justify-between ${
+            isShortFrame ? 'flex-nowrap gap-1.5' : 'flex-wrap gap-2 md:flex-nowrap md:gap-3'
+          }`}
+        >
           {/* Top-Left: Round Phase Clock + 4-Round Progress + Zone Info */}
-          <div className="order-1 flex flex-col gap-1">
+          <div className="order-1 flex min-w-0 flex-col gap-1">
             <div
               className={`flex items-center rounded-lg border border-slate-700/80 bg-[#121821]/92 shadow-lg ${
-                isShortFrame ? 'gap-2 px-2.5 py-1.5' : 'gap-2.5 px-2.5 py-1.5 sm:gap-3.5 sm:px-3.5 sm:py-2'
+                isShortFrame
+                  ? 'gap-1.5 px-2 py-1'
+                  : 'gap-2.5 px-2.5 py-1.5 sm:gap-3.5 sm:px-3.5 sm:py-2'
               }`}
             >
-              <div className="flex flex-col">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap">
+              <div className="flex flex-col shrink-0">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 whitespace-nowrap leading-none">
                   R{hud.currentRound}/{hud.totalRounds}
                 </span>
-                <div className="mt-1 flex items-center gap-1">
+                <div className="mt-1 flex items-center gap-0.5 sm:gap-1">
                   {Array.from({ length: hud.totalRounds }).map((_, i) => {
                     const rIdx = i + 1;
                     const done = rIdx < hud.currentRound;
@@ -4812,7 +4847,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                     return (
                       <span
                         key={rIdx}
-                        className={`h-1.5 w-3 sm:w-4 rounded-sm ${
+                        className={`h-1.5 rounded-sm ${isShortFrame ? 'w-2.5' : 'w-3 sm:w-4'} ${
                           active
                             ? 'bg-amber-400'
                             : done
@@ -4825,60 +4860,74 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 </div>
               </div>
 
-              <div className="h-6 sm:h-7 w-px bg-slate-700/80" />
+              <div className={`${isShortFrame ? 'h-5' : 'h-6 sm:h-7'} w-px bg-slate-700/80 shrink-0`} />
 
-              <div className="flex items-baseline gap-1.5">
-                <span className="hidden sm:inline text-[11px] font-medium text-slate-400">Round</span>
+              <div className="flex items-baseline gap-1.5 shrink-0">
+                {!isShortFrame && (
+                  <span className="hidden sm:inline text-[11px] font-medium text-slate-400">
+                    Round
+                  </span>
+                )}
                 <span
-                  className={`font-mono text-base sm:text-xl font-bold leading-none tabular-nums ${
-                    hud.roundTimeRemainingSec <= 10 ? 'text-red-400' : 'text-amber-400'
-                  }`}
+                  className={`font-mono font-bold leading-none tabular-nums whitespace-nowrap ${
+                    isShortFrame ? 'text-sm' : 'text-base sm:text-xl'
+                  } ${hud.roundTimeRemainingSec <= 10 ? 'text-red-400' : 'text-amber-400'}`}
                 >
                   {formatTimer(hud.roundTimeRemainingSec)}
                 </span>
               </div>
 
-              <div className="hidden lg:block h-7 w-px bg-slate-700/80" />
+              {!isShortFrame && (
+                <>
+                  <div className="hidden lg:block h-7 w-px bg-slate-700/80" />
 
-              <div className="hidden lg:flex items-baseline gap-1.5">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
-                  Match
-                </span>
-                <span className="font-mono text-sm font-bold leading-none text-slate-200 tabular-nums">
-                  {formatTimer(hud.matchTimeRemainingSec)}
-                </span>
-              </div>
+                  <div className="hidden lg:flex items-baseline gap-1.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
+                      Match
+                    </span>
+                    <span className="font-mono text-sm font-bold leading-none text-slate-200 tabular-nums">
+                      {formatTimer(hud.matchTimeRemainingSec)}
+                    </span>
+                  </div>
+                </>
+              )}
 
-              <div className="hidden sm:block h-6 sm:h-7 w-px bg-slate-700/80" />
+              <div className={`hidden sm:block ${isShortFrame ? 'h-5' : 'h-6 sm:h-7'} w-px bg-slate-700/80 shrink-0`} />
 
-              <div className="hidden sm:flex items-baseline gap-2 font-mono text-xs tabular-nums">
-                <span className="inline-flex items-center gap-1 font-bold text-slate-100">
-                  <Skull className="h-3.5 w-3.5 text-slate-400" />
+              <div className="hidden sm:flex items-center gap-1.5 font-mono text-[11px] sm:text-xs tabular-nums whitespace-nowrap">
+                <span className="inline-flex items-center gap-1 font-bold text-slate-100 whitespace-nowrap">
+                  <Skull className="h-3 w-3 text-slate-400" />
                   {hud.kills}/{hud.deaths}
                 </span>
-                <span className="hidden md:inline font-bold text-amber-300">{hud.points} pts</span>
-                <span className="inline-flex items-center gap-1 font-extrabold text-yellow-300">
-                  <GoldCoinSvg size={14} />
+                {!isShortFrame && (
+                  <span className="hidden md:inline font-bold text-amber-300 whitespace-nowrap">
+                    {hud.points} pts
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-0.5 font-extrabold text-yellow-300 whitespace-nowrap">
+                  <GoldCoinSvg size={13} />
                   {hud.totalCoins.toLocaleString()}
-                  {hud.coinsEarned > 0 && (
+                  {!isShortFrame && hud.coinsEarned > 0 && (
                     <span className="hidden xl:inline text-[10px] font-bold text-emerald-400">
                       +{hud.coinsEarned}
                     </span>
                   )}
                 </span>
-                <span className="hidden xl:inline-flex items-center gap-1 font-bold text-sky-300">
-                  Lv.{hud.playerLevel}
-                </span>
+                {!isShortFrame && (
+                  <span className="hidden xl:inline-flex items-center gap-1 font-bold text-sky-300">
+                    Lv.{hud.playerLevel}
+                  </span>
+                )}
                 {hud.localStreak >= 2 && (
                   <span className="inline-flex items-center gap-0.5 font-extrabold text-orange-400">
-                    <Flame className="h-3.5 w-3.5" />
+                    <Flame className="h-3 w-3" />
                     x{hud.localStreak}
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Safe-Zone & Map Sector Telemetry (auto-hides on ultra-short landscape frames to keep playfield wide open) */}
+            {/* Safe-Zone & Map Sector Telemetry (auto-hides on short landscape frames to keep playfield wide open) */}
             {!isShortFrame && (
               <div className="hidden sm:flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-xs font-semibold">
                 {hud.inStorm ? (
@@ -4913,79 +4962,160 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
             )}
           </div>
 
-          {/* Top-Center: TDM Live Scoreboard OR Survival Standing + Hype Banners & Kill Feed */}
-          <div className="order-3 md:order-2 flex w-full md:w-auto flex-col items-center gap-1">
+          {/* Top-Center: TDM Live Scoreboard OR Survival Standing + Compact Phone HP */}
+          <div
+            className={`${
+              isShortFrame
+                ? 'order-2 flex w-auto flex-col items-center gap-1 shrink-0'
+                : 'order-3 md:order-2 flex w-full md:w-auto flex-col items-center gap-1'
+            }`}
+          >
             {gameMode === 'tdm' ? (
               <div
-                className={`flex items-center gap-2.5 sm:gap-3 rounded-lg border border-slate-700/80 bg-[#121821]/92 shadow-lg ${
-                  isShortFrame ? 'px-2.5 py-1' : 'px-3 py-1.5 sm:px-3.5 sm:py-2'
+                className={`flex items-center rounded-lg border border-slate-700/80 bg-[#121821]/92 shadow-lg ${
+                  isShortFrame ? 'gap-1.5 px-2 py-1' : 'gap-2.5 sm:gap-3 px-3 py-1.5 sm:px-3.5 sm:py-2'
                 }`}
               >
-                <div className="flex items-center gap-1.5 sm:gap-2">
+                <div className="flex items-center gap-1 sm:gap-1.5">
                   <span className="text-[10px] sm:text-[11px] font-extrabold tracking-wider text-red-400">
-                    <span className="sm:hidden">RED</span>
-                    <span className="hidden sm:inline">CRIMSON</span>
+                    {isShortFrame ? (
+                      'RED'
+                    ) : (
+                      <>
+                        <span className="sm:hidden">RED</span>
+                        <span className="hidden sm:inline">CRIMSON</span>
+                      </>
+                    )}
                   </span>
-                  <span className="font-display text-xl sm:text-2xl font-bold leading-none text-red-200 tabular-nums">
+                  <span
+                    className={`font-display font-bold leading-none text-red-200 tabular-nums ${
+                      isShortFrame ? 'text-lg' : 'text-xl sm:text-2xl'
+                    }`}
+                  >
                     {hud.redScore}
                   </span>
-                  <span className="rounded bg-red-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-red-300 tabular-nums">
+                  <span className="rounded bg-red-500/20 px-1 py-0.5 font-mono text-[9px] sm:text-[10px] font-bold text-red-300 tabular-nums">
                     {hud.redRoundsWon}W
                   </span>
                 </div>
 
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
                   VS
                 </span>
 
-                <div className="flex items-center gap-1.5 sm:gap-2">
-                  <span className="rounded bg-blue-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-blue-300 tabular-nums">
+                <div className="flex items-center gap-1 sm:gap-1.5">
+                  <span className="rounded bg-blue-500/20 px-1 py-0.5 font-mono text-[9px] sm:text-[10px] font-bold text-blue-300 tabular-nums">
                     {hud.blueRoundsWon}W
                   </span>
-                  <span className="font-display text-xl sm:text-2xl font-bold leading-none text-blue-200 tabular-nums">
+                  <span
+                    className={`font-display font-bold leading-none text-blue-200 tabular-nums ${
+                      isShortFrame ? 'text-lg' : 'text-xl sm:text-2xl'
+                    }`}
+                  >
                     {hud.blueScore}
                   </span>
                   <span className="text-[10px] sm:text-[11px] font-extrabold tracking-wider text-blue-400">
-                    <span className="sm:hidden">BLU</span>
-                    <span className="hidden sm:inline">COBALT</span>
+                    {isShortFrame ? (
+                      'BLU'
+                    ) : (
+                      <>
+                        <span className="sm:hidden">BLU</span>
+                        <span className="hidden sm:inline">COBALT</span>
+                      </>
+                    )}
                   </span>
                 </div>
+
+                {/* Inline HP + Shield on landscape phone so we NEVER need a bulky bottom bar */}
+                {isShortFrame && isCompactPhone && (
+                  <>
+                    <div className="h-4 w-px bg-slate-700" />
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[10px] font-bold text-slate-200 tabular-nums whitespace-nowrap">
+                        HP {hud.health}
+                      </span>
+                      <div className="h-2 w-12 overflow-hidden rounded-sm bg-slate-800">
+                        <div
+                          className="h-full transition-all duration-100"
+                          style={{
+                            width: `${Math.max(0, Math.min(100, hud.health))}%`,
+                            backgroundColor:
+                              hud.health > 50 ? '#10B981' : hud.health > 25 ? '#F59E0B' : '#EF4444',
+                          }}
+                        />
+                      </div>
+                      {hud.shield > 0 && (
+                        <span className="inline-flex items-center gap-0.5 font-mono text-[10px] font-bold text-sky-400 tabular-nums">
+                          <Shield className="h-2.5 w-2.5" />
+                          {hud.shield}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <div
-                className={`flex items-center gap-2.5 sm:gap-3 rounded-lg border border-slate-700/80 bg-[#121821]/92 shadow-lg ${
-                  isShortFrame ? 'px-2.5 py-1' : 'px-3 py-1.5 sm:px-3.5 sm:py-2'
+                className={`flex items-center rounded-lg border border-slate-700/80 bg-[#121821]/92 shadow-lg ${
+                  isShortFrame ? 'gap-2 px-2 py-1' : 'gap-2.5 sm:gap-3 px-3 py-1.5 sm:px-3.5 sm:py-2'
                 }`}
               >
-                <span className="text-xs font-semibold text-slate-400">
+                <span className="text-[11px] sm:text-xs font-semibold text-slate-400 whitespace-nowrap">
                   Alive{' '}
-                  <strong className="font-mono text-sm text-slate-100 tabular-nums">
+                  <strong className="font-mono text-xs sm:text-sm text-slate-100 tabular-nums">
                     {hud.aliveCount}/{hud.totalCount}
                   </strong>
                 </span>
                 <div className="h-4 w-px bg-slate-700" />
-                <span className="text-xs font-semibold text-slate-400">
-                  Rank{' '}
-                  <strong className="font-mono text-sm text-amber-300 tabular-nums">
-                    #{hud.localRank}
-                  </strong>
+                <span className="text-[11px] sm:text-xs font-semibold text-slate-400 whitespace-nowrap">
+                  #{hud.localRank}
                 </span>
-                <div className="h-4 w-px bg-slate-700" />
-                {hud.survivalResurgenceActive ? (
-                  <span className="font-mono text-xs font-bold text-emerald-400 tabular-nums whitespace-nowrap">
-                    Resurge {Math.ceil(hud.survivalResurgenceLeftSec)}s
-                  </span>
-                ) : (
-                  <span className="text-xs font-extrabold uppercase tracking-wider text-red-400 whitespace-nowrap">
-                    Final Showdown
-                  </span>
+                {!isShortFrame && (
+                  <>
+                    <div className="h-4 w-px bg-slate-700" />
+                    {hud.survivalResurgenceActive ? (
+                      <span className="font-mono text-xs font-bold text-emerald-400 tabular-nums whitespace-nowrap">
+                        Resurge {Math.ceil(hud.survivalResurgenceLeftSec)}s
+                      </span>
+                    ) : (
+                      <span className="text-xs font-extrabold uppercase tracking-wider text-red-400 whitespace-nowrap">
+                        Final Showdown
+                      </span>
+                    )}
+                  </>
+                )}
+                {isShortFrame && isCompactPhone && (
+                  <>
+                    <div className="h-4 w-px bg-slate-700" />
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[10px] font-bold text-slate-200 tabular-nums whitespace-nowrap">
+                        HP {hud.health}
+                      </span>
+                      <div className="h-2 w-12 overflow-hidden rounded-sm bg-slate-800">
+                        <div
+                          className="h-full transition-all duration-100"
+                          style={{
+                            width: `${Math.max(0, Math.min(100, hud.health))}%`,
+                            backgroundColor:
+                              hud.health > 50 ? '#10B981' : hud.health > 25 ? '#F59E0B' : '#EF4444',
+                          }}
+                        />
+                      </div>
+                      {hud.shield > 0 && (
+                        <span className="inline-flex items-center gap-0.5 font-mono text-[10px] font-bold text-sky-400 tabular-nums">
+                          <Shield className="h-2.5 w-2.5" />
+                          {hud.shield}
+                        </span>
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
             )}
 
-            {/* Ultra-compact Mobile HP + Tappable Instant-Switch Gun Strip on narrow phones (< md) */}
-            {mobileControlsEnabled && (
-              <div className="flex md:hidden items-center gap-2 rounded-lg border border-slate-700/80 bg-[#121821]/92 px-2.5 py-1 shadow-md">
+            {/* Ultra-compact Mobile HP + Tappable Instant-Switch Gun Strip on portrait phones (< md and tall enough) */}
+            {isCompactPhone && !isShortFrame && (
+              <div className="flex items-center gap-2 rounded-lg border border-slate-700/80 bg-[#121821]/92 px-2.5 py-1 shadow-md">
                 <button
                   type="button"
                   onPointerDown={(e) => {
@@ -5054,15 +5184,21 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
             )}
           </div>
 
-          {/* Top-Right Controls */}
-          <div className="order-2 md:order-3 pointer-events-auto flex items-center gap-1.5 sm:gap-2">
+          {/* Top-Right Controls — compact icon buttons on short landscape frames so Pause never clips */}
+          <div
+            className={`${
+              isShortFrame ? 'order-3 gap-1' : 'order-2 md:order-3 gap-1.5 sm:gap-2'
+            } pointer-events-auto flex items-center shrink-0`}
+          >
             {!mobileControlsEnabled && (
               <button
                 type="button"
                 onClick={handleToggleAutoFire}
                 title="Toggle Smart Auto-Shoot when an enemy enters weapon range"
                 aria-pressed={autoFireEnabled}
-                className={`inline-flex h-9 sm:h-10 items-center gap-1.5 rounded-lg border px-2.5 sm:px-3 text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+                className={`inline-flex items-center gap-1.5 rounded-lg border text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+                  isShortFrame ? 'h-8 px-2' : 'h-9 sm:h-10 px-2.5 sm:px-3'
+                } ${
                   autoFireEnabled
                     ? 'border-amber-400/80 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
                     : 'border-slate-700/80 bg-[#121821]/92 text-slate-300 hover:border-amber-400/70 hover:text-amber-300'
@@ -5071,17 +5207,36 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 <Crosshair
                   className={`h-3.5 w-3.5 ${autoFireEnabled ? 'text-amber-300' : 'text-slate-400'}`}
                 />
-                <span className="hidden sm:inline">
-                  Auto-Shoot {autoFireEnabled ? 'ON' : 'OFF'}
-                </span>
+                {!isShortFrame && (
+                  <span className="hidden sm:inline">
+                    Auto-Shoot {autoFireEnabled ? 'ON' : 'OFF'}
+                  </span>
+                )}
               </button>
             )}
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? 'Exit Fullscreen' : 'Expand Fullscreen'}
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              className={`flex items-center justify-center rounded-lg border border-slate-700/80 bg-[#121821]/92 text-slate-200 transition-colors hover:border-amber-400/70 hover:text-amber-300 shrink-0 ${
+                isShortFrame ? 'h-8 w-8' : 'h-9 w-9 sm:h-10 sm:w-10'
+              }`}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="h-3.5 w-3.5 text-amber-300" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5 text-slate-300" />
+              )}
+            </button>
             <button
               type="button"
               onClick={toggleMobileControls}
               title={mobileControlsEnabled ? 'Hide Mobile Controller' : 'Show Mobile Controller'}
               aria-pressed={mobileControlsEnabled}
-              className={`inline-flex h-9 sm:h-10 items-center gap-1.5 rounded-lg border px-2.5 sm:px-3 text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+              className={`inline-flex items-center justify-center gap-1.5 rounded-lg border text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+                isShortFrame ? 'h-8 w-8 px-0' : 'h-9 sm:h-10 px-2.5 sm:px-3'
+              } ${
                 mobileControlsEnabled
                   ? 'border-amber-400/80 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
                   : 'border-slate-700/80 bg-[#121821]/92 text-slate-200 hover:border-amber-400/70 hover:text-amber-300'
@@ -5090,26 +5245,39 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               <Gamepad2
                 className={`h-4 w-4 ${mobileControlsEnabled ? 'text-amber-300' : 'text-slate-400'}`}
               />
-              <span className="hidden lg:inline">
-                {mobileControlsEnabled ? 'Touch Pad ON' : 'Touch Pad'}
-              </span>
+              {!isShortFrame && (
+                <span className="hidden lg:inline">
+                  {mobileControlsEnabled ? 'Touch Pad ON' : 'Touch Pad'}
+                </span>
+              )}
             </button>
             <button
               type="button"
               onClick={() => setScoreboardOpen((s) => !s)}
               title="Live Avatar Scoreboard (Tab)"
-              className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-700/80 bg-[#121821]/92 px-3 text-xs font-bold text-slate-200 transition-colors hover:border-amber-400/70 hover:text-amber-300 whitespace-nowrap shrink-0"
+              aria-label="Toggle live scoreboard"
+              className={`inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-700/80 bg-[#121821]/92 text-xs font-bold text-slate-200 transition-colors hover:border-amber-400/70 hover:text-amber-300 whitespace-nowrap shrink-0 ${
+                isShortFrame ? 'h-8 w-8 px-0' : 'h-9 sm:h-10 px-2.5 sm:px-3'
+              }`}
             >
               <Trophy className="h-3.5 w-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Scores</span>
-              <span className="hidden md:inline font-mono text-[10px] text-slate-400">[Tab]</span>
+              {!isShortFrame && (
+                <>
+                  <span className="hidden sm:inline">Scores</span>
+                  <span className="hidden md:inline font-mono text-[10px] text-slate-400">
+                    [Tab]
+                  </span>
+                </>
+              )}
             </button>
             {mode === 'multi' && room && (
               <button
                 type="button"
                 onClick={copyRoomCode}
                 title="Copy Room Code"
-                className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-700/80 bg-[#121821]/92 px-3 font-mono text-xs font-bold text-slate-200 transition-colors hover:border-amber-400/70 hover:text-amber-300 whitespace-nowrap shrink-0"
+                className={`inline-flex items-center gap-1 rounded-lg border border-slate-700/80 bg-[#121821]/92 font-mono text-xs font-bold text-slate-200 transition-colors hover:border-amber-400/70 hover:text-amber-300 whitespace-nowrap shrink-0 ${
+                  isShortFrame ? 'h-8 px-2 text-[11px]' : 'h-9 sm:h-10 px-3'
+                }`}
               >
                 <span>{room.roomId}</span>
                 {copiedCode ? (
@@ -5124,29 +5292,39 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               onClick={() => setSoundSettingsOpen(true)}
               title="Sound Settings — Choose Kill Sound & Volume"
               aria-label="Open sound settings"
-              className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700/80 bg-[#121821]/92 text-slate-200 transition-colors hover:border-amber-400/70 hover:text-amber-300"
+              className={`flex items-center justify-center rounded-lg border border-slate-700/80 bg-[#121821]/92 text-slate-200 transition-colors hover:border-amber-400/70 hover:text-amber-300 shrink-0 ${
+                isShortFrame ? 'h-8 w-8' : 'h-9 w-9 sm:h-10 sm:w-10'
+              }`}
             >
-              <SlidersHorizontal className="h-4 w-4 text-amber-400" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setMuted(audioEngine.toggleMute())}
-              aria-label={muted ? 'Unmute audio' : 'Mute audio'}
-              className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700/80 bg-[#121821]/92 text-slate-200 transition-colors hover:bg-slate-800"
-            >
-              {muted ? (
-                <VolumeX className="h-4 w-4 text-slate-400" />
+              {isShortFrame && muted ? (
+                <VolumeX className="h-3.5 w-3.5 text-slate-400" />
               ) : (
-                <Volume2 className="h-4 w-4 text-amber-400" />
+                <SlidersHorizontal className="h-3.5 w-3.5 text-amber-400" />
               )}
             </button>
+            {!isShortFrame && (
+              <button
+                type="button"
+                onClick={() => setMuted(audioEngine.toggleMute())}
+                aria-label={muted ? 'Unmute audio' : 'Mute audio'}
+                className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-lg border border-slate-700/80 bg-[#121821]/92 text-slate-200 transition-colors hover:bg-slate-800 shrink-0"
+              >
+                {muted ? (
+                  <VolumeX className="h-4 w-4 text-slate-400" />
+                ) : (
+                  <Volume2 className="h-4 w-4 text-amber-400" />
+                )}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setPaused((p) => !p)}
               aria-label="Pause match"
-              className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700/80 bg-[#121821]/92 text-slate-200 transition-colors hover:bg-slate-800"
+              className={`flex items-center justify-center rounded-lg border border-slate-700/80 bg-[#121821]/92 text-slate-200 transition-colors hover:bg-slate-800 shrink-0 ${
+                isShortFrame ? 'h-8 w-8' : 'h-9 w-9 sm:h-10 sm:w-10'
+              }`}
             >
-              <Pause className="h-4 w-4" />
+              <Pause className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </button>
           </div>
         </div>
@@ -5245,10 +5423,10 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
             </div>
           )}
 
-          {/* Bottom-Center: Swap Prompt + Active Buffs + Compact Weapon / Health / Utility Bar */}
+          {/* Bottom-Center: Swap Prompt + Active Buffs + Weapon/Health Bar (hidden on compact phones so middle playfield stays 100% open) */}
           <div
             className={`flex-col items-center gap-2 ${
-              mobileControlsEnabled ? 'hidden md:flex' : 'flex'
+              isCompactPhone ? 'hidden' : 'flex'
             }`}
           >
             {!mobileControlsEnabled && hud.swapPrompt && (
@@ -5591,32 +5769,44 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
       {/* Left-Side Notification Rail — keeps the middle of the screen 100% clear on phones, tablets, and laptops */}
       {hud.roundPhase === 'active' && !paused && (
         <div
-          className="pointer-events-none absolute left-0 z-14 flex max-w-[220px] sm:max-w-[275px] flex-col items-start gap-1.5"
+          className={`pointer-events-none absolute left-0 z-14 flex flex-col items-start ${
+            isShortFrame ? 'max-w-[185px] gap-1' : 'max-w-[220px] sm:max-w-[275px] gap-1.5'
+          }`}
           style={{
             top: isShortFrame
-              ? 'calc(max(0.5rem, env(safe-area-inset-top)) + 48px)'
+              ? 'calc(max(0.35rem, env(safe-area-inset-top)) + 40px)'
               : viewport.w < 768
                 ? mobileControlsEnabled
-                  ? 'calc(max(0.75rem, env(safe-area-inset-top)) + 124px)'
+                  ? 'calc(max(0.75rem, env(safe-area-inset-top)) + 120px)'
                   : 'calc(max(0.75rem, env(safe-area-inset-top)) + 90px)'
                 : 'calc(max(0.75rem, env(safe-area-inset-top)) + 108px)',
-            paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
+            paddingLeft: isShortFrame
+              ? 'max(0.5rem, env(safe-area-inset-left))'
+              : 'max(0.75rem, env(safe-area-inset-left))',
           }}
         >
           {/* Hype Banners (Killstreaks / Supply Drop / Overdrive Nova / Level Up / Final Showdown) */}
           {hud.hypeBanner && (
             <div
               key={`${hud.hypeBanner.title}_${hud.hypeBanner.subtitle}`}
-              className="hud-notify-left flex flex-col items-start rounded-lg border border-slate-700/80 border-l-4 bg-[#101722]/94 px-3 py-1.5 text-left shadow-xl"
+              className={`hud-notify-left flex flex-col items-start rounded-lg border border-slate-700/80 border-l-4 bg-[#101722]/94 text-left shadow-xl ${
+                isShortFrame ? 'px-2 py-1' : 'px-3 py-1.5'
+              }`}
               style={{ borderLeftColor: hud.hypeBanner.accent }}
             >
               <span
-                className="font-display text-lg sm:text-xl font-extrabold leading-tight tracking-wide"
+                className={`font-display font-extrabold leading-tight tracking-wide ${
+                  isShortFrame ? 'text-sm' : 'text-lg sm:text-xl'
+                }`}
                 style={{ color: hud.hypeBanner.accent }}
               >
                 {hud.hypeBanner.title}
               </span>
-              <span className="text-[10px] sm:text-[11px] font-semibold leading-snug text-slate-200">
+              <span
+                className={`font-semibold leading-snug text-slate-200 ${
+                  isShortFrame ? 'text-[9px]' : 'text-[10px] sm:text-[11px]'
+                }`}
+              >
                 {hud.hypeBanner.subtitle}
               </span>
             </div>
@@ -5624,10 +5814,10 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
 
           {/* Respawn / Final Showdown Spectating Alert */}
           {hud.isDowned && (
-            <div className="hud-notify-left inline-flex items-center gap-1.5 rounded-md border border-red-500/55 border-l-4 border-l-red-400 bg-[#1A1318]/94 px-2.5 py-1 text-[11px] sm:text-xs font-bold text-red-200 shadow-lg">
+            <div className="hud-notify-left inline-flex items-center gap-1.5 rounded-md border border-red-500/55 border-l-4 border-l-red-400 bg-[#1A1318]/94 px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-xs font-bold text-red-200 shadow-lg">
               {gameMode === 'tdm' || hud.survivalResurgenceActive ? (
                 <>
-                  <RotateCcw className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                  <RotateCcw className="h-3 w-3 shrink-0 text-amber-400" />
                   <span className="tabular-nums">
                     {gameMode === 'tdm' ? 'Respawn' : 'Resurge'} in{' '}
                     {hud.respawnTimerSec.toFixed(1)}s
@@ -5641,42 +5831,47 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
 
           {/* Active Tactical Status Notifications */}
           {hud.spawnShieldSec > 0 && !hud.isDowned && hud.roundCountdownSec <= 0 && (
-            <div className="hud-notify-left rounded-md border border-sky-400/50 border-l-4 border-l-sky-400 bg-sky-950/90 px-2.5 py-1 text-[11px] font-bold text-sky-200 tabular-nums shadow-md">
+            <div className="hud-notify-left rounded-md border border-sky-400/50 border-l-4 border-l-sky-400 bg-sky-950/90 px-2 py-0.5 text-[10px] sm:text-[11px] font-bold text-sky-200 tabular-nums shadow-md">
               Spawn Shield {hud.spawnShieldSec.toFixed(1)}s
             </div>
           )}
 
           {hud.inCover && !hud.isDowned && hud.roundCountdownSec <= 0 && (
-            <div className="hud-notify-left inline-flex items-center gap-1.5 rounded-md border border-emerald-400/55 border-l-4 border-l-emerald-400 bg-emerald-950/92 px-2.5 py-1 text-[11px] font-bold text-emerald-200 shadow-md">
+            <div className="hud-notify-left inline-flex items-center gap-1 rounded-md border border-emerald-400/55 border-l-4 border-l-emerald-400 bg-emerald-950/92 px-2 py-0.5 text-[10px] sm:text-[11px] font-bold text-emerald-200 shadow-md">
               <Shield className="h-3 w-3 shrink-0 text-emerald-400" />
               <span>IN COVER · -35% DMG</span>
             </div>
           )}
 
           {hud.isSnared && (
-            <div className="hud-notify-left rounded-md border border-purple-400/55 border-l-4 border-l-purple-400 bg-purple-950/92 px-2.5 py-1 text-[11px] font-bold text-purple-200 shadow-md">
+            <div className="hud-notify-left rounded-md border border-purple-400/55 border-l-4 border-l-purple-400 bg-purple-950/92 px-2 py-0.5 text-[10px] sm:text-[11px] font-bold text-purple-200 shadow-md">
               SNARED — Slowed
             </div>
           )}
 
           {hud.inSmoke && !hud.isSnared && (
-            <div className="hud-notify-left rounded-md border border-slate-500/65 border-l-4 border-l-slate-300 bg-slate-900/92 px-2.5 py-1 text-[11px] font-semibold text-slate-200 shadow-md">
+            <div className="hud-notify-left rounded-md border border-slate-500/65 border-l-4 border-l-slate-300 bg-slate-900/92 px-2 py-0.5 text-[10px] sm:text-[11px] font-semibold text-slate-200 shadow-md">
               In Smoke Shroud
             </div>
           )}
 
-          {/* Compact Left-Docked Kill & Event Feed (capped at 2 items on phones/short screens so it never touches the joystick) */}
-          {(viewport.w < 768 || isShortFrame ? hud.killFeed.slice(-2) : hud.killFeed).map(
-            (entry) => (
-              <div
-                key={entry.id}
-                className="hud-notify-left rounded-md border border-slate-700/70 border-l-3 bg-[#101722]/90 px-2.5 py-1 text-[11px] sm:text-xs font-medium leading-snug text-slate-100 shadow-md"
-                style={{ borderLeftColor: entry.accent }}
-              >
-                {entry.text}
-              </div>
-            )
-          )}
+          {/* Compact Left-Docked Kill & Event Feed (capped at 1 on short landscape phones so joystick stays clear) */}
+          {(isShortFrame
+            ? hud.killFeed.slice(-1)
+            : viewport.w < 768
+              ? hud.killFeed.slice(-2)
+              : hud.killFeed
+          ).map((entry) => (
+            <div
+              key={entry.id}
+              className={`hud-notify-left rounded-md border border-slate-700/70 border-l-3 bg-[#101722]/90 font-medium leading-snug text-slate-100 shadow-md ${
+                isShortFrame ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-[11px] sm:text-xs'
+              }`}
+              style={{ borderLeftColor: entry.accent }}
+            >
+              {entry.text}
+            </div>
+          ))}
         </div>
       )}
 

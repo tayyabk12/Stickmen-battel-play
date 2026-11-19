@@ -236,27 +236,38 @@ export const MobileController: React.FC<MobileControllerProps> = ({
   const shroudReady = utilityCharges > 0 && utilityReadyPct >= 0.99;
 
   // Auto-scale touch gamepad cleanly across portrait phone, short landscape phone, tablet, and desktop frames
-  const padScale =
-    viewportH < 440
-      ? 0.78
+  const isVeryShort = viewportH < 360;
+  const isShort = viewportH < 440;
+  const padScale = isVeryShort
+    ? 0.66
+    : isShort
+      ? 0.74
       : viewportW < 395
-        ? 0.82
+        ? 0.8
         : viewportW < 640 || viewportH < 560
-          ? 0.9
+          ? 0.88
           : 1;
 
   return (
     <div
       className="pointer-events-none fixed inset-x-0 bottom-0 z-15 flex items-end justify-between select-none"
       style={{
-        paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
-        paddingRight: 'max(0.75rem, env(safe-area-inset-right))',
-        paddingBottom: 'max(0.65rem, env(safe-area-inset-bottom))',
+        paddingLeft: isShort
+          ? 'max(0.5rem, env(safe-area-inset-left))'
+          : 'max(0.75rem, env(safe-area-inset-left))',
+        paddingRight: isShort
+          ? 'max(0.5rem, env(safe-area-inset-right))'
+          : 'max(0.75rem, env(safe-area-inset-right))',
+        paddingBottom: isShort
+          ? 'max(0.35rem, env(safe-area-inset-bottom))'
+          : 'max(0.65rem, env(safe-area-inset-bottom))',
       }}
     >
       {/* LEFT THUMB ZONE: Smart Auto-Fire Toggle + 360° Precision Analog Stick */}
       <div
-        className="pointer-events-none flex origin-bottom-left flex-col items-start gap-2.5"
+        className={`pointer-events-none flex origin-bottom-left flex-col items-start ${
+          isShort ? 'gap-1.5' : 'gap-2.5'
+        }`}
         style={{ transform: `scale(${padScale})` }}
       >
         <button
