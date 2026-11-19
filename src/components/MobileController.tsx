@@ -7,7 +7,7 @@ import {
   Sparkles,
   Zap,
 } from 'lucide-react';
-import { RARITY_META, type LootRarity } from '../types/game';
+import { RARITY_META, WEAPON_CATALOG, type LootRarity, type WeaponCategory } from '../types/game';
 
 export interface MobileSwapPrompt {
   label: string;
@@ -16,8 +16,10 @@ export interface MobileSwapPrompt {
 }
 
 interface MobileControllerProps {
+  weaponCategory: WeaponCategory;
   weaponName: string;
   weaponRarity: LootRarity;
+  weaponInventory: Record<WeaponCategory, LootRarity>;
   weaponReadyPct: number;
   hasTargetInRange: boolean;
   dashReadyPct: number;
@@ -31,6 +33,7 @@ interface MobileControllerProps {
   viewportW: number;
   viewportH: number;
   onToggleAutoFire: () => void;
+  onCycleWeapon: () => void;
   onMoveVector: (x: number, y: number) => void;
   onFireChange: (firing: boolean) => void;
   onDash: () => void;
@@ -102,8 +105,10 @@ const RadialRing: React.FC<RadialRingProps> = ({
 };
 
 export const MobileController: React.FC<MobileControllerProps> = ({
+  weaponCategory,
   weaponName,
   weaponRarity,
+  weaponInventory,
   weaponReadyPct,
   hasTargetInRange,
   dashReadyPct,
@@ -117,6 +122,7 @@ export const MobileController: React.FC<MobileControllerProps> = ({
   viewportW,
   viewportH,
   onToggleAutoFire,
+  onCycleWeapon,
   onMoveVector,
   onFireChange,
   onDash,
@@ -363,9 +369,9 @@ export const MobileController: React.FC<MobileControllerProps> = ({
         className="pointer-events-none relative h-[206px] w-[224px] shrink-0 origin-bottom-right"
         style={{ transform: `scale(${padScale})` }}
       >
-        {/* CONTEXTUAL SWAP BUTTON (far-left when standing near a swappable weapon) */}
+        {/* CONTEXTUAL FLOOR SWAP BUTTON (far-left upper when standing near a swappable weapon) */}
         {swapPrompt && (
-          <div className="pointer-events-none absolute bottom-[68px] left-[-10px] flex flex-col items-center gap-1">
+          <div className="pointer-events-none absolute bottom-[78px] left-[-10px] flex flex-col items-center gap-1">
             <span
               className="max-w-[92px] truncate rounded bg-[#0C121B]/95 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide shadow"
               style={{ color: RARITY_META[swapPrompt.rarity].color }}
@@ -379,18 +385,57 @@ export const MobileController: React.FC<MobileControllerProps> = ({
                 triggerHaptic(14);
                 onSwap();
               }}
-              aria-label={`Swap weapon to ${swapPrompt.label}`}
-              className="pointer-events-auto touch-none flex h-[56px] w-[56px] flex-col items-center justify-center rounded-full border-2 bg-[#101824]/92 shadow-lg transition-transform active:scale-92"
+              aria-label={`Pick up ${swapPrompt.label}`}
+              className="pointer-events-auto touch-none flex h-[54px] w-[54px] flex-col items-center justify-center rounded-full border-2 bg-[#101824]/92 shadow-lg transition-transform active:scale-92"
               style={{
                 borderColor: RARITY_META[swapPrompt.rarity].border,
                 color: RARITY_META[swapPrompt.rarity].color,
               }}
             >
               <Repeat2 className="h-4 w-4" />
-              <span className="mt-0.5 text-[10px] font-extrabold uppercase leading-none">Swap</span>
+              <span className="mt-0.5 text-[9px] font-extrabold uppercase leading-none">Grab</span>
             </button>
           </div>
         )}
+
+        {/* INSTANT MID-FIGHT WEAPON SWITCH BUTTON (bottom-left of cluster — 1 tap cycles Shotgun / SMG / Sniper) */}
+        <button
+          type="button"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            triggerHaptic(10);
+            onCycleWeapon();
+          }}
+          aria-label={`Switch weapon (current: ${weaponName})`}
+          className="pointer-events-auto touch-none absolute bottom-[6px] left-[-10px] flex h-[58px] w-[58px] flex-col items-center justify-center rounded-full border-2 bg-[#101824]/92 shadow-lg transition-transform active:scale-92"
+          style={{
+            borderColor: rarityMeta.border,
+            color: rarityMeta.color,
+          }}
+        >
+          <Repeat2 className="h-3.5 w-3.5" />
+          <span className="mt-0.5 text-[9px] font-black uppercase tracking-tight leading-none">
+            {WEAPON_CATALOG[weaponCategory].shortTag}
+          </span>
+          <div className="mt-1 flex items-center gap-1">
+            {(['close', 'mid', 'long'] as WeaponCategory[]).map((cat) => {
+              const active = cat === weaponCategory;
+              const slotColor = RARITY_META[weaponInventory[cat]].color;
+              return (
+                <span
+                  key={cat}
+                  className="rounded-full transition-all"
+                  style={{
+                    width: active ? '9px' : '5px',
+                    height: '5px',
+                    backgroundColor: slotColor,
+                    opacity: active ? 1 : 0.48,
+                  }}
+                />
+              );
+            })}
+          </div>
+        </button>
 
         {/* NOVA ULTIMATE BUTTON (11 o'clock upper arc) */}
         <button

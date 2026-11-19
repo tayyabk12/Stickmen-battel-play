@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Award, Crosshair, Home, RotateCcw, Skull, Sparkles, Trophy, Zap } from 'lucide-react';
 import {
   getXpForNextLevel,
@@ -7,6 +7,7 @@ import {
   type MatchSummary,
   type PlayerProgression,
 } from '../types/game';
+import { audioEngine } from '../lib/audio';
 import { StickFigurePreview } from './StickFigureSvg';
 import { GoldCoinSvg } from './WeaponGraphicSvg';
 
@@ -31,6 +32,12 @@ export const MatchSummaryModal: React.FC<MatchSummaryModalProps> = ({
   onPlayAgain,
   onBackToTitle,
 }) => {
+  useEffect(() => {
+    return () => {
+      audioEngine.stopCustomClips();
+    };
+  }, []);
+
   const isTdm = summary.gameMode === 'tdm';
   const sortedAvatars = [...summary.avatarScores].sort(
     (a, b) => b.points - a.points || b.kills - a.kills || a.deaths - b.deaths

@@ -322,12 +322,12 @@ export const WEAPON_CATALOG: Record<
     name: 'Viper Scattergun',
     roleLabel: 'Close-Range Shotgun',
     shortTag: 'SHOTGUN',
-    description: 'Twin-bore tactical pump shotgun built for tight maze ambushes & heavy knockback.',
+    description: 'Twin-bore tactical pump shotgun built for tight maze ambushes & final-zone close fights.',
     requiresLos: false,
     tiers: {
-      common: { damage: 13, range: 98, cooldownSec: 0.54, knockback: 215 },
-      uncommon: { damage: 17, range: 108, cooldownSec: 0.5, knockback: 250 },
-      rare: { damage: 22, range: 118, cooldownSec: 0.46, knockback: 285 },
+      common: { damage: 22, range: 155, cooldownSec: 0.46, knockback: 105 },
+      uncommon: { damage: 28, range: 175, cooldownSec: 0.42, knockback: 120 },
+      rare: { damage: 36, range: 195, cooldownSec: 0.38, knockback: 135 },
     },
   },
   mid: {
@@ -337,9 +337,9 @@ export const WEAPON_CATALOG: Record<
     description: 'Balanced high-cadence assault carbine with holographic sight and rapid burst tracking.',
     requiresLos: true,
     tiers: {
-      common: { damage: 10, range: 180, cooldownSec: 0.58, knockback: 105 },
-      uncommon: { damage: 13, range: 210, cooldownSec: 0.52, knockback: 125 },
-      rare: { damage: 17, range: 240, cooldownSec: 0.46, knockback: 145 },
+      common: { damage: 16, range: 230, cooldownSec: 0.36, knockback: 75 },
+      uncommon: { damage: 22, range: 265, cooldownSec: 0.33, knockback: 88 },
+      rare: { damage: 28, range: 300, cooldownSec: 0.29, knockback: 100 },
     },
   },
   long: {
@@ -349,9 +349,9 @@ export const WEAPON_CATALOG: Record<
     description: 'Long-barrel magnetic rail rifle with precision scope that punishes open-lane crossings.',
     requiresLos: true,
     tiers: {
-      common: { damage: 19, range: 295, cooldownSec: 1.48, knockback: 165 },
-      uncommon: { damage: 25, range: 345, cooldownSec: 1.36, knockback: 195 },
-      rare: { damage: 32, range: 400, cooldownSec: 1.24, knockback: 230 },
+      common: { damage: 32, range: 345, cooldownSec: 1.02, knockback: 135 },
+      uncommon: { damage: 43, range: 400, cooldownSec: 0.94, knockback: 155 },
+      rare: { damage: 55, range: 465, cooldownSec: 0.85, knockback: 180 },
     },
   },
 };

@@ -8,6 +8,12 @@ import type { LootRarity, PickupType, WeaponCategory } from '../types/game';
 class GameAudioEngine {
   private ctx: AudioContext | null = null;
   private muted: boolean = false;
+  private faaahAudio: HTMLAudioElement | null = null;
+  private mistriAudio: HTMLAudioElement | null = null;
+  private chachaAudio: HTMLAudioElement | null = null;
+  private gameStartAudio: HTMLAudioElement | null = null;
+  private victorySongAudio: HTMLAudioElement | null = null;
+  private activeLongClip: HTMLAudioElement | null = null;
 
   constructor() {
     try {
@@ -15,6 +21,139 @@ class GameAudioEngine {
       if (saved === '1') this.muted = true;
     } catch {
       // Ignore storage access failures
+    }
+    this.preloadCustomClips();
+  }
+
+  private preloadCustomClips(): void {
+    if (typeof window === 'undefined' || typeof Audio === 'undefined') return;
+    try {
+      this.faaahAudio = new Audio('/sounds/faaah.mp3');
+      this.faaahAudio.preload = 'auto';
+      this.faaahAudio.volume = 0.85;
+
+      this.mistriAudio = new Audio('/assets/aistudio/mistri-man-jao_6VOMK5Ga_dd5a5d37.mp3');
+      this.mistriAudio.preload = 'auto';
+      this.mistriAudio.volume = 0.88;
+
+      this.chachaAudio = new Audio('/assets/aistudio/chacha-ahh_6T5NLJ4B_44a6b105.mp3');
+      this.chachaAudio.preload = 'auto';
+      this.chachaAudio.volume = 0.9;
+
+      this.gameStartAudio = new Audio('/sounds/game-start.mp3');
+      this.gameStartAudio.preload = 'auto';
+      this.gameStartAudio.volume = 0.85;
+
+      this.victorySongAudio = new Audio('/sounds/win-song.mp3');
+      this.victorySongAudio.preload = 'auto';
+      this.victorySongAudio.volume = 0.85;
+    } catch {
+      // Ignore environments without HTMLAudioElement support
+    }
+  }
+
+  public stopCustomClips(): void {
+    if (this.activeLongClip) {
+      try {
+        this.activeLongClip.pause();
+        this.activeLongClip.currentTime = 0;
+      } catch {
+        // Ignore playback errors
+      }
+      this.activeLongClip = null;
+    }
+    for (const clip of [
+      this.mistriAudio,
+      this.chachaAudio,
+      this.gameStartAudio,
+      this.victorySongAudio,
+    ]) {
+      if (clip) {
+        try {
+          clip.pause();
+          clip.currentTime = 0;
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  }
+
+  public playKillFaaah(): void {
+    if (this.muted || typeof Audio === 'undefined') return;
+    try {
+      // Clone from preloaded template so rapid double/triple kills fire crisply without cutting out
+      const clip = this.faaahAudio
+        ? (this.faaahAudio.cloneNode(true) as HTMLAudioElement)
+        : new Audio('/sounds/faaah.mp3');
+      clip.volume = 0.88;
+      clip.play().catch(() => {});
+    } catch {
+      // Ignore autoplay restrictions
+    }
+  }
+
+  public playMistriMaanJao(): void {
+    if (this.muted || typeof Audio === 'undefined') return;
+    try {
+      this.stopCustomClips();
+      if (!this.mistriAudio) {
+        this.mistriAudio = new Audio('/assets/aistudio/mistri-man-jao_6VOMK5Ga_dd5a5d37.mp3');
+      }
+      this.mistriAudio.volume = 0.88;
+      this.mistriAudio.currentTime = 0;
+      this.activeLongClip = this.mistriAudio;
+      this.mistriAudio.play().catch(() => {});
+    } catch {
+      // Ignore autoplay restrictions
+    }
+  }
+
+  public playEnemyKilledUser(): void {
+    if (this.muted || typeof Audio === 'undefined') return;
+    try {
+      this.stopCustomClips();
+      if (!this.chachaAudio) {
+        this.chachaAudio = new Audio('/assets/aistudio/chacha-ahh_6T5NLJ4B_44a6b105.mp3');
+      }
+      this.chachaAudio.volume = 0.9;
+      this.chachaAudio.currentTime = 0;
+      this.activeLongClip = this.chachaAudio;
+      this.chachaAudio.play().catch(() => {});
+    } catch {
+      // Ignore autoplay restrictions
+    }
+  }
+
+  public playGameStartMusic(): void {
+    if (this.muted || typeof Audio === 'undefined') return;
+    try {
+      this.stopCustomClips();
+      if (!this.gameStartAudio) {
+        this.gameStartAudio = new Audio('/sounds/game-start.mp3');
+      }
+      this.gameStartAudio.volume = 0.85;
+      this.gameStartAudio.currentTime = 0;
+      this.activeLongClip = this.gameStartAudio;
+      this.gameStartAudio.play().catch(() => {});
+    } catch {
+      // Ignore autoplay restrictions
+    }
+  }
+
+  public playVictorySong(): void {
+    if (this.muted || typeof Audio === 'undefined') return;
+    try {
+      this.stopCustomClips();
+      if (!this.victorySongAudio) {
+        this.victorySongAudio = new Audio('/sounds/win-song.mp3');
+      }
+      this.victorySongAudio.volume = 0.85;
+      this.victorySongAudio.currentTime = 0;
+      this.activeLongClip = this.victorySongAudio;
+      this.victorySongAudio.play().catch(() => {});
+    } catch {
+      // Ignore autoplay restrictions
     }
   }
 
@@ -24,6 +163,9 @@ class GameAudioEngine {
 
   public setMuted(val: boolean): void {
     this.muted = val;
+    if (val) {
+      this.stopCustomClips();
+    }
     try {
       localStorage.setItem('los_muted', val ? '1' : '0');
     } catch {
@@ -561,6 +703,7 @@ class GameAudioEngine {
   }
 
   public playVictory(): void {
+    this.playVictorySong();
     const ctx = this.ensureContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -571,7 +714,7 @@ class GameAudioEngine {
       osc.type = 'triangle';
       const t = now + i * 0.09;
       osc.frequency.setValueAtTime(f, t);
-      gain.gain.setValueAtTime(0.15, t);
+      gain.gain.setValueAtTime(0.1, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
       osc.connect(gain);
       gain.connect(ctx.destination);

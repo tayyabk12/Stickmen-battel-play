@@ -911,6 +911,54 @@ export function generateMidRoundSupplyDrop(
   return result;
 }
 
+/**
+ * Closing-Zone Close-Quarters Arsenal Drop:
+ * Spawns inside the shrinking safe circle when the fight gets tight so players
+ * have immediate close-range weapons, Shroud Snare traps, Power Surge, and Shield
+ * to battle enemies right at the end of the zone shrink.
+ */
+export function generateClosingZoneArsenalDrop(
+  roomId: string,
+  seed: number,
+  obstacles: Obstacle[],
+  roundNumber: number,
+  zoneCenterX: number,
+  zoneCenterY: number,
+  zoneRadius: number
+): Omit<PickupData, 'claimedBy'>[] {
+  const rng = createSeededRng(seed + roundNumber * 29989 + 411);
+  const result: Omit<PickupData, 'claimedBy'>[] = [];
+  const ringR = Math.max(46, Math.min(zoneRadius * 0.48, 128));
+
+  const arsenal: Array<{ type: PickupType; rarity: LootRarity; angleDeg: number; distMul: number }> = [
+    { type: 'close', rarity: 'rare', angleDeg: 20, distMul: 0.72 },
+    { type: 'mid', rarity: 'rare', angleDeg: 140, distMul: 0.78 },
+    { type: 'utility', rarity: 'rare', angleDeg: 260, distMul: 0.76 },
+    { type: 'power', rarity: 'uncommon', angleDeg: 80, distMul: 0.92 },
+    { type: 'shield', rarity: 'uncommon', angleDeg: 200, distMul: 0.92 },
+    { type: 'medkit', rarity: 'uncommon', angleDeg: 320, distMul: 0.92 },
+  ];
+
+  arsenal.forEach((item, idx) => {
+    const rad = ((item.angleDeg + (rng() - 0.5) * 24) * Math.PI) / 180;
+    const tx = zoneCenterX + Math.cos(rad) * ringR * item.distMul;
+    const ty = zoneCenterY + Math.sin(rad) * ringR * item.distMul;
+    const pos = resolveArenaCollisions(tx, ty, obstacles, 26);
+    result.push({
+      pickupId: `pk_r${roundNumber}_closezone_${idx}_${Math.floor(rng() * 10000)}`,
+      roomId,
+      type: item.type,
+      rarity: item.rarity,
+      zone: getMapZoneAt(pos.x, pos.y),
+      x: Math.round(pos.x),
+      y: Math.round(pos.y),
+      active: true,
+    });
+  });
+
+  return result;
+}
+
 /** Shortest signed angle difference in radians */
 export function lerpAngle(current: number, target: number, alpha: number): number {
   let diff = target - current;

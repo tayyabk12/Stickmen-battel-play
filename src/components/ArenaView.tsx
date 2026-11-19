@@ -88,6 +88,7 @@ import {
   computeZoneState,
   findTacticalCoverPoint,
   generateArenaObstacles,
+  generateClosingZoneArsenalDrop,
   generateMidRoundSupplyDrop,
   generatePickupsForRoom,
   getCoverInfo,
@@ -229,6 +230,7 @@ interface HudSnapshot {
   localStreak: number;
   weaponCategory: WeaponCategory;
   weaponRarity: LootRarity;
+  weaponInventory: Record<WeaponCategory, LootRarity>;
   weaponReadyPct: number;
   utilityRarity: UtilityRarity;
   utilityCharges: number;
@@ -319,11 +321,11 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     return 'ontouchstart' in window || navigator.maxTouchPoints > 0 || window.innerWidth <= 900;
   });
   const [autoFireEnabled, setAutoFireEnabled] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
+    if (typeof window === 'undefined') return true;
     try {
-      return window.localStorage.getItem('los_auto_fire_v1') === 'on';
+      return window.localStorage.getItem('los_auto_fire_v1') !== 'off';
     } catch {
-      return false;
+      return true;
     }
   });
 
@@ -368,6 +370,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     localStreak: 0,
     weaponCategory: 'close',
     weaponRarity: 'common',
+    weaponInventory: { close: 'common', mid: 'common', long: 'common' },
     weaponReadyPct: 1,
     utilityRarity: 'none',
     utilityCharges: 0,
@@ -442,7 +445,15 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
   const roundCountdownRef = useRef<number>(ROUND_COUNTDOWN_SEC);
   const lastCountdownIntRef = useRef<number>(3);
   const midRoundDropSpawnedRef = useRef<boolean>(false);
+  const closingZoneDropSpawnedRef = useRef<boolean>(false);
   const suddenDeathAnnouncedRef = useRef<boolean>(false);
+  const weaponInventoryRef = useRef<Record<WeaponCategory, LootRarity>>({
+    close: 'common',
+    mid: 'common',
+    long: 'common',
+  });
+  const pendingWeaponSwitchRef = useRef<WeaponCategory | 'next' | null>(null);
+  const lastWheelSwitchRef = useRef<number>(0);
   const roundElapsedRef = useRef<number>(0);
   const intermissionLeftRef = useRef<number>(0);
   const totalElapsedRef = useRef<number>(0);
@@ -959,7 +970,10 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     roundCountdownRef.current = ROUND_COUNTDOWN_SEC;
     lastCountdownIntRef.current = 3;
     midRoundDropSpawnedRef.current = false;
+    closingZoneDropSpawnedRef.current = false;
     suddenDeathAnnouncedRef.current = false;
+    weaponInventoryRef.current = { close: 'common', mid: 'common', long: 'common' };
+    pendingWeaponSwitchRef.current = null;
     zoneRadiusRef.current = ARENA_RADIUS;
     zoneTargetRadiusRef.current = ARENA_RADIUS * 0.72;
     zoneCenterRef.current = {
@@ -979,6 +993,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     spawnRoundCoinCaches();
 
     forceSyncRef.current = true;
+    audioEngine.playGameStartMusic();
     audioEngine.playCountdownTick(false);
     pushKillFeed(`Round ${nextRound} / ${totalRoundsRef.current} — Get Ready!`, '#F59E0B');
   };
@@ -1123,6 +1138,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
         claimedBy: '',
       }));
       spawnRoundCoinCaches();
+      audioEngine.playGameStartMusic();
       audioEngine.playCountdownTick(false);
     } else if (room) {
       const sorted = [...roomPlayers].sort((a, b) => a.playerId.localeCompare(b.playerId));
@@ -1221,8 +1237,15 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
 
       fightersRef.current = map;
       spawnRoundCoinCaches();
+      audioEngine.playGameStartMusic();
       audioEngine.playCountdownTick(false);
     }
+
+    return () => {
+      if (!matchEndedRef.current) {
+        audioEngine.stopCustomClips();
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1343,6 +1366,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
           spawnShockwave(existing.x, existing.y, 72, existing.color, 0.38, 3.5);
           const killer = rp.lastHitBy ? map.get(rp.lastHitBy) : null;
           if (rp.lastHitBy === localUserId) {
+            audioEngine.playKillFaaah();
             const localF = map.get(localUserId);
             if (localF) {
               localF.kills += 1;
@@ -1607,6 +1631,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               local.respawnTimer = SURVIVAL_RESPAWN_SEC;
             }
             audioEngine.playElimination();
+            audioEngine.playEnemyKilledUser();
             spawnParticles(local.x, local.y, local.color, 18, 190);
             spawnShockwave(local.x, local.y, 76, '#EF4444', 0.4, 4);
             pushKillFeed(
@@ -1667,7 +1692,11 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
             (local?.team === 'blue' && room.blueScore > room.redScore)
           : room.winnerId === localUserId;
 
-      if (won) audioEngine.playVictory();
+      if (won) {
+        audioEngine.playVictory();
+      } else {
+        audioEngine.playMistriMaanJao();
+      }
       grantLocalProgress(
         COIN_REWARDS.MATCH_COMPLETE + (won ? COIN_REWARDS.MATCH_VICTORY : 0),
         XP_REWARDS.MATCH_COMPLETE + (won ? XP_REWARDS.MATCH_VICTORY : 0),
@@ -1746,6 +1775,26 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
       }
       if (k === 'c') {
         if (!e.repeat) justPressedCoverRef.current = true;
+        return;
+      }
+      if (k === '1') {
+        if (!e.repeat) pendingWeaponSwitchRef.current = 'close';
+        return;
+      }
+      if (k === '2') {
+        if (!e.repeat) pendingWeaponSwitchRef.current = 'mid';
+        return;
+      }
+      if (k === '3') {
+        if (!e.repeat) pendingWeaponSwitchRef.current = 'long';
+        return;
+      }
+      if (k === 'x') {
+        if (!e.repeat) pendingWeaponSwitchRef.current = 'next';
+        return;
+      }
+      if (k === 't') {
+        if (!e.repeat) audioEngine.playMistriMaanJao();
         return;
       }
       keysHeldRef.current.add(k);
@@ -1834,15 +1883,26 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
           );
         }
       } else if (isWeaponPickup(pickup.type)) {
-        fighter.weaponCategory = pickup.type;
-        fighter.weaponRarity = pickup.rarity;
-        const spec = getWeaponSpec(pickup.type, pickup.rarity);
+        if (fighter.isLocal) {
+          const prevSlotRarity = weaponInventoryRef.current[pickup.type];
+          const bestRarity =
+            RARITY_RANK[pickup.rarity] > RARITY_RANK[prevSlotRarity]
+              ? pickup.rarity
+              : prevSlotRarity;
+          weaponInventoryRef.current[pickup.type] = bestRarity;
+          fighter.weaponCategory = pickup.type;
+          fighter.weaponRarity = bestRarity;
+        } else {
+          fighter.weaponCategory = pickup.type;
+          fighter.weaponRarity = pickup.rarity;
+        }
+        const spec = getWeaponSpec(pickup.type, fighter.weaponRarity);
         if (fighter.isLocal) {
           spawnFloatingText(
             fighter.x,
             fighter.y - 32,
-            `${RARITY_META[pickup.rarity].label.toUpperCase()} ${spec.name.toUpperCase()}`,
-            rarityColor
+            `${RARITY_META[fighter.weaponRarity].label.toUpperCase()} ${spec.name.toUpperCase()}`,
+            RARITY_META[fighter.weaponRarity].color
           );
         }
         if (pickup.rarity === 'rare') {
@@ -2034,8 +2094,12 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
       recomputeTeamTotalsFromFighters();
 
       if (attacker.isLocal) {
-        overdriveChargeRef.current = Math.min(100, overdriveChargeRef.current + 28);
-        spawnFloatingText(attacker.x, attacker.y - 36, `+${SCORE_RULES.KILL} PTS`, '#FACC15');
+        overdriveChargeRef.current = Math.min(100, overdriveChargeRef.current + 30);
+        // KO Adrenaline Surge: instant HP + Shield + brief speed burst to chain eliminations
+        attacker.health = Math.min(100, attacker.health + 25);
+        attacker.shield = Math.min(50, attacker.shield + 15);
+        attacker.speedBoostSec = Math.max(attacker.speedBoostSec, 1.4);
+        spawnFloatingText(attacker.x, attacker.y - 36, `+${SCORE_RULES.KILL} PTS · +25 HP`, '#10B981');
         grantLocalProgress(0, XP_REWARDS.KILL);
       }
 
@@ -2049,6 +2113,11 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
       );
 
       audioEngine.playElimination();
+      if (attacker.isLocal) {
+        audioEngine.playKillFaaah();
+      } else if (victim.isLocal) {
+        audioEngine.playEnemyKilledUser();
+      }
       spawnParticles(victim.x, victim.y, victim.color, 22, 220);
       spawnShockwave(victim.x, victim.y, 82, victim.color, 0.42, 4);
       pushKillFeed(
@@ -2062,8 +2131,8 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
       overdriveChargeRef.current = 0;
 
       // Defensive surge + massive spectacle
-      caster.shield = Math.min(50, caster.shield + 25);
-      caster.speedBoostSec = Math.max(caster.speedBoostSec, 3.0);
+      caster.shield = Math.min(50, caster.shield + 30);
+      caster.speedBoostSec = Math.max(caster.speedBoostSec, 3.5);
       cameraRef.current.shake = 14;
       hitstopRef.current = 0.05;
       audioEngine.playOverdriveNova();
@@ -2072,7 +2141,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
       spawnParticles(caster.x, caster.y, '#38BDF8', 26, 260);
       spawnParticles(caster.x, caster.y, '#FACC15', 14, 210);
       spawnFloatingText(caster.x, caster.y - 42, 'OVERDRIVE NOVA!', '#38BDF8');
-      triggerHypeBanner('OVERDRIVE NOVA!', '205m Shockwave + Shield Surge', '#38BDF8', 1900);
+      triggerHypeBanner('OVERDRIVE NOVA!', '48 DMG Shockwave + Shield Surge', '#38BDF8', 1900);
 
       // Dispel nearby enemy Shroud Snares
       const hz = hazardsRef.current;
@@ -2084,7 +2153,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
 
       // Blast every enemy inside 205px radius
       const NOVA_RADIUS = 205;
-      const NOVA_DAMAGE = 28;
+      const NOVA_DAMAGE = 48;
       for (const target of fightersRef.current.values()) {
         if (target.id === caster.id || target.status !== 'alive') continue;
         if (areTeammates(caster, target)) continue;
@@ -2140,8 +2209,8 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
       const baseDamage = Math.round(spec.damage * (powered ? POWER_DAMAGE_MULTIPLIER : 1));
       const rarityAccent = RARITY_META[attacker.weaponRarity].color;
 
-      // Bots get a tactical cadence buffer so skirmishes play out over exciting 6-10s exchanges
-      attacker.attackCooldown = spec.cooldownSec + (attacker.isBot ? 0.34 : 0);
+      // Bots get a fair tactical cadence buffer so the player always has equal or better firefight energy
+      attacker.attackCooldown = spec.cooldownSec + (attacker.isBot ? 0.44 : 0);
       attacker.attackTimer = spec.category === 'long' ? 0.28 : 0.2;
       attacker.animState = 'attack';
       if (attacker.isLocal) {
@@ -2212,7 +2281,9 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
         attacker.y,
         targetCover
       );
-      const damage = coverProtected ? Math.max(1, Math.round(baseDamage * 0.65)) : baseDamage;
+      const botFairnessMul = attacker.isBot && closestTarget.isLocal ? 0.78 : 1;
+      const scaledBaseDamage = Math.max(1, Math.round(baseDamage * botFairnessMul));
+      const damage = coverProtected ? Math.max(1, Math.round(scaledBaseDamage * 0.65)) : scaledBaseDamage;
 
       const angle = Math.atan2(closestTarget.y - attacker.y, closestTarget.x - attacker.x);
       const kbForce =
@@ -2408,7 +2479,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
       const snareMul = getSnareSlowMultiplier(bot.id, bot.team, bot.x, bot.y, hazardsRef.current);
       const speedMul =
         (bot.speedBoostSec > 0 ? SPEED_BOOST_MULTIPLIER : 1) *
-        (distToZoneCenter > zr * 0.86 ? 1.15 : 0.94) *
+        (distToZoneCenter > zr * 0.86 ? 1.12 : 0.9) *
         snareMul;
 
       if (d > 14) {
@@ -2620,7 +2691,11 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
 
         if (mode === 'solo') {
           matchEndedRef.current = true;
-          if (won) audioEngine.playVictory();
+          if (won) {
+            audioEngine.playVictory();
+          } else {
+            audioEngine.playMistriMaanJao();
+          }
           grantLocalProgress(
             COIN_REWARDS.MATCH_COMPLETE + (won ? COIN_REWARDS.MATCH_VICTORY : 0),
             XP_REWARDS.MATCH_COMPLETE + (won ? XP_REWARDS.MATCH_VICTORY : 0),
@@ -2655,7 +2730,11 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
           });
         } else if (isHost && currentRoom) {
           matchEndedRef.current = true;
-          if (won) audioEngine.playVictory();
+          if (won) {
+            audioEngine.playVictory();
+          } else {
+            audioEngine.playMistriMaanJao();
+          }
           void finishRoomMatch(currentRoom.roomId, winnerId, winnerName, 0, {
             redScore: redScoreRef.current,
             blueScore: blueScoreRef.current,
@@ -2794,6 +2873,45 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
             2800
           );
           pushKillFeed('Mid-Round Vault Supply Drop + Gold Coins landed at center!', '#FACC15');
+        }
+
+        // Closing-Zone Close-Quarters Arsenal Drop when the safe zone tightens for final close fights
+        if (
+          !closingZoneDropSpawnedRef.current &&
+          (zoneRadiusRef.current <= 340 || roundElapsedRef.current >= roundDurationRef.current * 0.72)
+        ) {
+          closingZoneDropSpawnedRef.current = true;
+          const closeArsenal = generateClosingZoneArsenalDrop(
+            mode === 'multi' && currentRoom ? currentRoom.roomId : 'SOLO',
+            seedRef.current,
+            obstaclesRef.current,
+            currentRoundRef.current,
+            zoneCenterRef.current.x,
+            zoneCenterRef.current.y,
+            zoneRadiusRef.current
+          ).map((p) => ({ ...p, claimedBy: '' }));
+          pickupsRef.current = [...pickupsRef.current, ...closeArsenal];
+          audioEngine.playSupplyDrop();
+          spawnShockwave(
+            zoneCenterRef.current.x,
+            zoneCenterRef.current.y,
+            Math.min(260, zoneRadiusRef.current * 0.9),
+            '#F97316',
+            0.75,
+            5
+          );
+          spawnParticles(zoneCenterRef.current.x, zoneCenterRef.current.y, '#FACC15', 22, 185);
+          spawnParticles(zoneCenterRef.current.x, zoneCenterRef.current.y, '#F97316', 16, 165);
+          triggerHypeBanner(
+            'CLOSE-ZONE ARSENAL!',
+            'Rare Shotgun, SMG, Shroud & Power Dropped Inside Zone!',
+            '#F97316',
+            3200
+          );
+          pushKillFeed(
+            'Close-Zone Arsenal dropped inside shrinking zone — grab weapons & combat tools!',
+            '#F97316'
+          );
         }
 
         // Survival Resurgence Lock Announcement at 65% of each round
@@ -2971,8 +3089,12 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               fighter.animState = 'idle';
               fighter.spawnShieldTimer = SPAWN_SHIELD_SEC;
               fighter.lastDamagedAt = totalElapsedRef.current;
-              fighter.weaponCategory = 'close';
-              fighter.weaponRarity = 'common';
+              if (fighter.isLocal) {
+                fighter.weaponRarity = weaponInventoryRef.current[fighter.weaponCategory];
+              } else {
+                fighter.weaponCategory = 'close';
+                fighter.weaponRarity = 'common';
+              }
               fighter.lastHitBy = '';
               spawnParticles(
                 spawn.x,
@@ -3018,6 +3140,32 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 iy /= mag;
               }
 
+              // Instant Mid-Fight Weapon Switching (1/2/3, X, Scroll Wheel, or Mobile Switch button)
+              if (pendingWeaponSwitchRef.current !== null) {
+                const req = pendingWeaponSwitchRef.current;
+                pendingWeaponSwitchRef.current = null;
+                const order: WeaponCategory[] = ['close', 'mid', 'long'];
+                const nextCat: WeaponCategory =
+                  req === 'next'
+                    ? order[(order.indexOf(fighter.weaponCategory) + 1) % order.length]
+                    : req;
+                const nextRarity = weaponInventoryRef.current[nextCat];
+                if (nextCat !== fighter.weaponCategory || nextRarity !== fighter.weaponRarity) {
+                  fighter.weaponCategory = nextCat;
+                  fighter.weaponRarity = nextRarity;
+                  // Keep weapon snappy & ready to fire immediately after mid-fight swap
+                  fighter.attackCooldown = Math.min(fighter.attackCooldown, 0.08);
+                  audioEngine.playPickup(nextCat, nextRarity);
+                  spawnFloatingText(
+                    fighter.x,
+                    fighter.y - 34,
+                    `${WEAPON_CATALOG[nextCat].shortTag} · ${RARITY_META[nextRarity].label.toUpperCase()}`,
+                    RARITY_META[nextRarity].color
+                  );
+                  forceSyncRef.current = true;
+                }
+              }
+
               if (justPressedNovaRef.current) {
                 justPressedNovaRef.current = false;
                 triggerOverdriveNova(fighter);
@@ -3027,7 +3175,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 justPressedDashRef.current = false;
                 if (fighter.dashCooldown <= 0) {
                   fighter.dashTimer = 0.24;
-                  fighter.dashCooldown = 2.6;
+                  fighter.dashCooldown = 1.7;
                   audioEngine.playDash();
                   spawnParticles(fighter.x, fighter.y + 12, '#CBD5E1', 8, 95);
                   spawnShockwave(fighter.x, fighter.y + 10, 40, '#94A3B8', 0.22, 2.5);
@@ -3079,6 +3227,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 hazardsRef.current
               );
               const speedMul =
+                1.06 *
                 (isDashing ? SPRINT_MULTIPLIER * 1.28 : 1) *
                 (fighter.speedBoostSec > 0 ? SPEED_BOOST_MULTIPLIER : 1) *
                 (isDashing ? 1 : snareMul);
@@ -3113,22 +3262,28 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 if (!pk.active) continue;
                 if (Math.hypot(pk.x - fighter.x, pk.y - fighter.y) >= PICKUP_RANGE) continue;
 
-                const isWep = isWeaponPickup(pk.type);
-                const isUpgrade =
-                  isWep && RARITY_RANK[pk.rarity] > RARITY_RANK[fighter.weaponRarity];
-                const canSwap =
-                  isWep &&
-                  wantSwap &&
-                  (pk.type !== fighter.weaponCategory || pk.rarity !== fighter.weaponRarity);
+                let shouldCollect = false;
+                let didSwap = false;
+                if (isWeaponPickup(pk.type)) {
+                  const slotRarity = weaponInventoryRef.current[pk.type];
+                  const isUpgrade = RARITY_RANK[pk.rarity] > RARITY_RANK[slotRarity];
+                  const canSwap =
+                    wantSwap &&
+                    (pk.type !== fighter.weaponCategory || pk.rarity !== fighter.weaponRarity);
+                  shouldCollect = isUpgrade || canSwap;
+                  didSwap = canSwap;
+                } else {
+                  shouldCollect = true;
+                }
 
-                if (!isWep || isUpgrade || canSwap) {
+                if (shouldCollect) {
                   pk.active = false;
                   pk.claimedBy = fighter.id;
                   applyPickupEffect(fighter, pk);
                   if (mode === 'multi' && currentRoom) {
                     void claimRoomPickup(currentRoom.roomId, pk.pickupId, fighter.id);
                   }
-                  if (canSwap) break;
+                  if (didSwap) break;
                 }
               }
             } else {
@@ -3531,11 +3686,12 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
           damageBoostSec: local?.damageBoostSec ?? 0,
           spawnShieldSec: local?.spawnShieldTimer ?? 0,
           respawnTimerSec: local?.respawnTimer ?? 0,
-          dashReadyPct: local ? Math.max(0, Math.min(1, 1 - local.dashCooldown / 2.6)) : 1,
+          dashReadyPct: local ? Math.max(0, Math.min(1, 1 - local.dashCooldown / 1.7)) : 1,
           overdrivePct: Math.round(overdriveChargeRef.current),
           localStreak: streaksRef.current.get(localUserId) ?? 0,
           weaponCategory: local?.weaponCategory ?? 'close',
           weaponRarity: local?.weaponRarity ?? 'common',
+          weaponInventory: { ...weaponInventoryRef.current },
           weaponReadyPct: local
             ? Math.max(
                 0,
@@ -3670,6 +3826,23 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
     justPressedSwapRef.current = true;
   }, []);
 
+  const handleSelectWeapon = useCallback((cat: WeaponCategory) => {
+    pendingWeaponSwitchRef.current = cat;
+  }, []);
+
+  const handleCycleWeapon = useCallback(() => {
+    pendingWeaponSwitchRef.current = 'next';
+  }, []);
+
+  const handleArenaWheel = (e: React.WheelEvent<SVGSVGElement>) => {
+    if (paused || hud.roundPhase !== 'active' || hud.isDowned) return;
+    if (Math.abs(e.deltaY) < 4) return;
+    const now = performance.now();
+    if (now - lastWheelSwitchRef.current < 150) return;
+    lastWheelSwitchRef.current = now;
+    pendingWeaponSwitchRef.current = 'next';
+  };
+
   const handleToggleAutoFire = useCallback(() => {
     setAutoFireEnabled((prev) => {
       const next = !prev;
@@ -3701,6 +3874,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
         className="block h-full w-full cursor-crosshair select-none"
         viewBox={`${viewMinX} ${viewMinY} ${viewW} ${viewH}`}
         onPointerDown={handleArenaPointerDown}
+        onWheel={handleArenaWheel}
         onContextMenu={(e) => e.preventDefault()}
         role="application"
         aria-label="LastOneStanding 4-Round Arena"
@@ -4415,15 +4589,32 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
           return (
             <g key={f.id}>
               {targetInRange && (
-                <ellipse
-                  cx={f.x}
-                  cy={f.y + 19}
-                  rx="23"
-                  ry="8.5"
-                  fill="none"
-                  stroke="#F59E0B"
-                  strokeWidth="2.5"
-                />
+                <g pointerEvents="none">
+                  <ellipse
+                    cx={f.x}
+                    cy={f.y + 19}
+                    rx="24"
+                    ry="9"
+                    fill="none"
+                    stroke="#F59E0B"
+                    strokeWidth="2.5"
+                    strokeDasharray="6 4"
+                  />
+                  {/* Tactical Target-Lock Corner Brackets */}
+                  <g
+                    transform={`translate(${f.x}, ${f.y - 3})`}
+                    stroke="#F59E0B"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    fill="none"
+                    opacity="0.92"
+                  >
+                    <path d="M -22 -22 L -22 -14 M -22 -22 L -14 -22" />
+                    <path d="M 22 -22 L 22 -14 M 22 -22 L 14 -22" />
+                    <path d="M -22 20 L -22 12 M -22 20 L -14 20" />
+                    <path d="M 22 20 L 22 12 M 22 20 L 14 20" />
+                  </g>
+                </g>
               )}
               <StickFigureSvg
                 x={f.x}
@@ -4786,10 +4977,18 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               </div>
             )}
 
-            {/* Ultra-compact Mobile HP + Equipped Gun Strip on narrow phones (< md) so thumbs have 100% clear bottom corners */}
+            {/* Ultra-compact Mobile HP + Tappable Instant-Switch Gun Strip on narrow phones (< md) */}
             {mobileControlsEnabled && (
               <div className="flex md:hidden items-center gap-2 rounded-lg border border-slate-700/80 bg-[#121821]/92 px-2.5 py-1 shadow-md">
-                <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    handleCycleWeapon();
+                  }}
+                  aria-label="Switch equipped weapon"
+                  className="pointer-events-auto touch-none flex items-center gap-1.5 rounded px-1 py-0.5 active:bg-slate-800/80"
+                >
                   <div className="h-5 w-8 shrink-0">
                     <WeaponGraphicSvg
                       category={hud.weaponCategory}
@@ -4799,13 +4998,30 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                       compact
                     />
                   </div>
-                  <span
-                    className="max-w-[92px] truncate text-[11px] font-bold"
-                    style={{ color: equippedRarityMeta.color }}
-                  >
-                    {equippedWeaponMeta.name}
-                  </span>
-                </div>
+                  <div className="flex flex-col items-start">
+                    <span
+                      className="max-w-[84px] truncate text-[10px] font-extrabold leading-none"
+                      style={{ color: equippedRarityMeta.color }}
+                    >
+                      {equippedWeaponMeta.shortTag}
+                    </span>
+                    <div className="mt-1 flex items-center gap-1">
+                      {(['close', 'mid', 'long'] as WeaponCategory[]).map((cat) => (
+                        <span
+                          key={cat}
+                          className="rounded-full"
+                          style={{
+                            width: cat === hud.weaponCategory ? '8px' : '4px',
+                            height: '4px',
+                            backgroundColor: RARITY_META[hud.weaponInventory[cat]].color,
+                            opacity: cat === hud.weaponCategory ? 1 : 0.45,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <Repeat2 className="h-3 w-3 text-slate-400" />
+                </button>
                 <div className="h-4 w-px bg-slate-700" />
                 <div className="flex items-center gap-1.5">
                   <span className="font-mono text-[11px] font-bold text-slate-200 tabular-nums">
@@ -4830,83 +5046,30 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                 </div>
               </div>
             )}
-
-            {/* High-Energy Arcade Hype Banner (Killstreaks / Supply Drop / Overdrive Nova / Final Showdown) */}
-            {hud.hypeBanner && hud.roundPhase === 'active' && (
-              <div
-                className="flex flex-col items-center rounded-lg border-2 bg-[#111824]/95 px-5 py-1.5 text-center shadow-2xl"
-                style={{ borderColor: hud.hypeBanner.accent }}
-              >
-                <span
-                  className="font-display text-2xl font-extrabold leading-none tracking-wider"
-                  style={{ color: hud.hypeBanner.accent }}
-                >
-                  {hud.hypeBanner.title}
-                </span>
-                <span className="mt-0.5 text-[11px] font-semibold text-slate-200">
-                  {hud.hypeBanner.subtitle}
-                </span>
-              </div>
-            )}
-
-            {/* TDM / Survival Resurgence Respawn Banner or Final Showdown Spectating Banner */}
-            {hud.isDowned && hud.roundPhase === 'active' && (
-              <div className="inline-flex items-center gap-2 rounded-lg border border-red-500/60 bg-[#1A1318]/95 px-4 py-1.5 text-xs font-bold text-red-200">
-                {gameMode === 'tdm' || hud.survivalResurgenceActive ? (
-                  <>
-                    <RotateCcw className="h-3.5 w-3.5 text-amber-400" />
-                    <span className="tabular-nums">
-                      {gameMode === 'tdm' ? 'Respawning' : 'Resurgence respawn'} in{' '}
-                      {hud.respawnTimerSec.toFixed(1)}s...
-                    </span>
-                  </>
-                ) : (
-                  <span>
-                    Final Showdown · Spectating {hud.spectatingName || 'Arena'}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {hud.spawnShieldSec > 0 && !hud.isDowned && hud.roundCountdownSec <= 0 && (
-              <div className="rounded-md border border-sky-400/60 bg-sky-950/90 px-3 py-1 text-xs font-bold text-sky-200 tabular-nums">
-                Spawn Shield Active ({hud.spawnShieldSec.toFixed(1)}s)
-              </div>
-            )}
-
-            {hud.inCover && !hud.isDowned && hud.roundCountdownSec <= 0 && (
-              <div className="inline-flex items-center gap-1.5 rounded-md border border-emerald-400/65 bg-emerald-950/92 px-3 py-1 text-xs font-bold text-emerald-200 shadow-md">
-                <Shield className="h-3.5 w-3.5 text-emerald-400" />
-                <span>IN COVER · -35% DMG · FAST REGEN</span>
-              </div>
-            )}
-
-            {hud.isSnared && (
-              <div className="rounded-md border border-purple-400/60 bg-purple-950/90 px-3 py-1 text-xs font-bold text-purple-200">
-                SNARED — Movement Slowed
-              </div>
-            )}
-            {hud.inSmoke && !hud.isSnared && (
-              <div className="rounded-md border border-slate-500/70 bg-slate-900/90 px-3 py-1 text-xs font-semibold text-slate-200">
-                Concealed in Smoke Shroud
-              </div>
-            )}
-            {hud.killFeed.map((entry) => (
-              <div
-                key={entry.id}
-                className="rounded-md border border-slate-700/70 bg-[#121821]/92 px-3 py-1 text-xs font-medium text-slate-100"
-              >
-                <span
-                  className="mr-2 inline-block h-2 w-2 rounded-full align-middle"
-                  style={{ backgroundColor: entry.accent }}
-                />
-                {entry.text}
-              </div>
-            ))}
           </div>
 
           {/* Top-Right Controls */}
           <div className="order-2 md:order-3 pointer-events-auto flex items-center gap-1.5 sm:gap-2">
+            {!mobileControlsEnabled && (
+              <button
+                type="button"
+                onClick={handleToggleAutoFire}
+                title="Toggle Smart Auto-Shoot when an enemy enters weapon range"
+                aria-pressed={autoFireEnabled}
+                className={`inline-flex h-9 sm:h-10 items-center gap-1.5 rounded-lg border px-2.5 sm:px-3 text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+                  autoFireEnabled
+                    ? 'border-amber-400/80 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30'
+                    : 'border-slate-700/80 bg-[#121821]/92 text-slate-300 hover:border-amber-400/70 hover:text-amber-300'
+                }`}
+              >
+                <Crosshair
+                  className={`h-3.5 w-3.5 ${autoFireEnabled ? 'text-amber-300' : 'text-slate-400'}`}
+                />
+                <span className="hidden sm:inline">
+                  Auto-Shoot {autoFireEnabled ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            )}
             <button
               type="button"
               onClick={toggleMobileControls}
@@ -5129,14 +5292,54 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               </div>
             )}
 
+            {/* Instant 3-Slot Tactical Weapon Switcher ([1] Shotgun · [2] SMG · [3] Sniper) */}
+            <div className="pointer-events-auto flex items-center gap-1.5">
+              {(['close', 'mid', 'long'] as WeaponCategory[]).map((cat, idx) => {
+                const active = hud.weaponCategory === cat;
+                const slotRarity = hud.weaponInventory[cat];
+                const slotMeta = RARITY_META[slotRarity];
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => handleSelectWeapon(cat)}
+                    title={`Switch to ${WEAPON_CATALOG[cat].name} (${slotMeta.label}) [Key ${idx + 1}]`}
+                    className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wider transition-all whitespace-nowrap ${
+                      active
+                        ? 'bg-[#172130] shadow-md scale-[1.02]'
+                        : 'border-slate-700/80 bg-[#101620]/88 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                    }`}
+                    style={
+                      active
+                        ? {
+                            borderColor: slotMeta.border,
+                            color: slotMeta.color,
+                          }
+                        : undefined
+                    }
+                  >
+                    <span className="font-mono text-[10px] opacity-75">[{idx + 1}]</span>
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ backgroundColor: slotMeta.color }}
+                    />
+                    <span>{WEAPON_CATALOG[cat].shortTag}</span>
+                  </button>
+                );
+              })}
+            </div>
+
             <div
               className={`flex items-center rounded-lg border border-slate-700/80 bg-[#121821]/92 shadow-lg ${
                 mobileControlsEnabled ? 'gap-2 px-2.5 py-1.5' : 'gap-3 px-3.5 py-2.5'
               }`}
             >
-              {/* Equipped Primary Graphic Gun Slot */}
-              <div
-                className={`flex items-center rounded-md border ${
+              {/* Equipped Primary Graphic Gun Slot (click to cycle weapon) */}
+              <button
+                type="button"
+                onClick={handleCycleWeapon}
+                title="Click or press [1/2/3/X] or scroll wheel to switch weapons mid-fight"
+                className={`pointer-events-auto flex items-center rounded-md border text-left transition-transform active:scale-98 ${
                   mobileControlsEnabled
                     ? 'min-w-[126px] gap-1.5 px-2 py-1'
                     : 'min-w-[168px] gap-2.5 px-2.5 py-1.5'
@@ -5188,7 +5391,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
                     />
                   </div>
                 </div>
-              </div>
+              </button>
 
               <div className="h-9 w-px bg-slate-700/80" />
 
@@ -5312,6 +5515,8 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
             <div className="hidden lg:block text-right text-xs font-medium text-slate-400">
               <span>WASD Move</span>
               <span className="mx-1.5 opacity-50">·</span>
+              <span className="font-bold text-slate-200">1/2/3/X Switch Gun</span>
+              <span className="mx-1.5 opacity-50">·</span>
               <span className={hud.inCover || hud.canSnapCover ? 'font-bold text-emerald-400' : ''}>
                 C Cover
               </span>
@@ -5319,7 +5524,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
               <span>Shift Dash</span>
               <span className="mx-1.5 opacity-50">·</span>
               <span className={hud.hasTargetInRange ? 'font-bold text-amber-400' : ''}>
-                Space/Click Attack
+                Space/Click Fire
               </span>
               <span className="mx-1.5 opacity-50">·</span>
               <span>Q Shroud</span>
@@ -5340,8 +5545,10 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
         hud.roundPhase === 'active' &&
         !hud.isDowned && (
           <MobileController
+            weaponCategory={hud.weaponCategory}
             weaponName={equippedWeaponMeta.name}
             weaponRarity={hud.weaponRarity}
+            weaponInventory={hud.weaponInventory}
             weaponReadyPct={hud.weaponReadyPct}
             hasTargetInRange={hud.hasTargetInRange}
             dashReadyPct={hud.dashReadyPct}
@@ -5355,6 +5562,7 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
             viewportW={viewport.w}
             viewportH={viewport.h}
             onToggleAutoFire={handleToggleAutoFire}
+            onCycleWeapon={handleCycleWeapon}
             onMoveVector={handleMobileMoveVector}
             onFireChange={handleMobileFireChange}
             onDash={handleMobileDash}
@@ -5365,19 +5573,111 @@ export const ArenaView: React.FC<ArenaViewProps> = ({
           />
         )}
 
+      {/* Left-Side Notification Rail — keeps the middle of the screen 100% clear on phones, tablets, and laptops */}
+      {hud.roundPhase === 'active' && !paused && (
+        <div
+          className="pointer-events-none absolute left-0 z-14 flex max-w-[220px] sm:max-w-[275px] flex-col items-start gap-1.5"
+          style={{
+            top: isShortFrame
+              ? 'calc(max(0.5rem, env(safe-area-inset-top)) + 48px)'
+              : viewport.w < 768
+                ? mobileControlsEnabled
+                  ? 'calc(max(0.75rem, env(safe-area-inset-top)) + 124px)'
+                  : 'calc(max(0.75rem, env(safe-area-inset-top)) + 90px)'
+                : 'calc(max(0.75rem, env(safe-area-inset-top)) + 108px)',
+            paddingLeft: 'max(0.75rem, env(safe-area-inset-left))',
+          }}
+        >
+          {/* Hype Banners (Killstreaks / Supply Drop / Overdrive Nova / Level Up / Final Showdown) */}
+          {hud.hypeBanner && (
+            <div
+              key={`${hud.hypeBanner.title}_${hud.hypeBanner.subtitle}`}
+              className="hud-notify-left flex flex-col items-start rounded-lg border border-slate-700/80 border-l-4 bg-[#101722]/94 px-3 py-1.5 text-left shadow-xl"
+              style={{ borderLeftColor: hud.hypeBanner.accent }}
+            >
+              <span
+                className="font-display text-lg sm:text-xl font-extrabold leading-tight tracking-wide"
+                style={{ color: hud.hypeBanner.accent }}
+              >
+                {hud.hypeBanner.title}
+              </span>
+              <span className="text-[10px] sm:text-[11px] font-semibold leading-snug text-slate-200">
+                {hud.hypeBanner.subtitle}
+              </span>
+            </div>
+          )}
+
+          {/* Respawn / Final Showdown Spectating Alert */}
+          {hud.isDowned && (
+            <div className="hud-notify-left inline-flex items-center gap-1.5 rounded-md border border-red-500/55 border-l-4 border-l-red-400 bg-[#1A1318]/94 px-2.5 py-1 text-[11px] sm:text-xs font-bold text-red-200 shadow-lg">
+              {gameMode === 'tdm' || hud.survivalResurgenceActive ? (
+                <>
+                  <RotateCcw className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                  <span className="tabular-nums">
+                    {gameMode === 'tdm' ? 'Respawn' : 'Resurge'} in{' '}
+                    {hud.respawnTimerSec.toFixed(1)}s
+                  </span>
+                </>
+              ) : (
+                <span>Spectating {hud.spectatingName || 'Arena'}</span>
+              )}
+            </div>
+          )}
+
+          {/* Active Tactical Status Notifications */}
+          {hud.spawnShieldSec > 0 && !hud.isDowned && hud.roundCountdownSec <= 0 && (
+            <div className="hud-notify-left rounded-md border border-sky-400/50 border-l-4 border-l-sky-400 bg-sky-950/90 px-2.5 py-1 text-[11px] font-bold text-sky-200 tabular-nums shadow-md">
+              Spawn Shield {hud.spawnShieldSec.toFixed(1)}s
+            </div>
+          )}
+
+          {hud.inCover && !hud.isDowned && hud.roundCountdownSec <= 0 && (
+            <div className="hud-notify-left inline-flex items-center gap-1.5 rounded-md border border-emerald-400/55 border-l-4 border-l-emerald-400 bg-emerald-950/92 px-2.5 py-1 text-[11px] font-bold text-emerald-200 shadow-md">
+              <Shield className="h-3 w-3 shrink-0 text-emerald-400" />
+              <span>IN COVER · -35% DMG</span>
+            </div>
+          )}
+
+          {hud.isSnared && (
+            <div className="hud-notify-left rounded-md border border-purple-400/55 border-l-4 border-l-purple-400 bg-purple-950/92 px-2.5 py-1 text-[11px] font-bold text-purple-200 shadow-md">
+              SNARED — Slowed
+            </div>
+          )}
+
+          {hud.inSmoke && !hud.isSnared && (
+            <div className="hud-notify-left rounded-md border border-slate-500/65 border-l-4 border-l-slate-300 bg-slate-900/92 px-2.5 py-1 text-[11px] font-semibold text-slate-200 shadow-md">
+              In Smoke Shroud
+            </div>
+          )}
+
+          {/* Compact Left-Docked Kill & Event Feed (capped at 2 items on phones/short screens so it never touches the joystick) */}
+          {(viewport.w < 768 || isShortFrame ? hud.killFeed.slice(-2) : hud.killFeed).map(
+            (entry) => (
+              <div
+                key={entry.id}
+                className="hud-notify-left rounded-md border border-slate-700/70 border-l-3 bg-[#101722]/90 px-2.5 py-1 text-[11px] sm:text-xs font-medium leading-snug text-slate-100 shadow-md"
+                style={{ borderLeftColor: entry.accent }}
+              >
+                {entry.text}
+              </div>
+            )
+          )}
+        </div>
+      )}
+
       {/* Pre-Round 3-2-1-FIGHT! Staging Countdown Overlay */}
       {hud.roundPhase === 'active' && hud.roundCountdownSec > 0 && !paused && (
-        <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center">
-          <div className="flex flex-col items-center rounded-2xl border border-amber-400/50 bg-[#0D131C]/88 px-10 py-6 text-center shadow-2xl backdrop-blur-xs">
-            <span className="text-xs font-extrabold uppercase tracking-[0.25em] text-amber-400">
+        <div className="pointer-events-none absolute inset-0 z-15 flex items-center justify-center p-4">
+          <div className="flex flex-col items-center rounded-2xl border border-amber-400/50 bg-[#0D131C]/88 px-6 py-4 sm:px-10 sm:py-6 text-center shadow-2xl backdrop-blur-xs">
+            <span className="text-[10px] sm:text-xs font-extrabold uppercase tracking-[0.22em] text-amber-400">
               Round {hud.currentRound} of {hud.totalRounds} ·{' '}
               {gameMode === 'tdm' ? 'Team Deathmatch' : 'Survival Resurgence'}
             </span>
-            <div className="mt-1 font-display text-7xl font-extrabold leading-none tracking-wider text-slate-50 tabular-nums">
+            <div className="mt-1 font-display text-5xl sm:text-7xl font-extrabold leading-none tracking-wider text-slate-50 tabular-nums">
               {Math.max(1, Math.ceil(hud.roundCountdownSec))}
             </div>
-            <p className="mt-2 max-w-xs text-xs font-medium text-slate-300">
-              Hug any block or press [C] for -35% cover defense & fast regen, use Boost Pads to flank, and unleash [R] Overdrive Nova!
+            <p className="mt-1.5 max-w-xs text-[11px] sm:text-xs font-medium text-slate-300">
+              Hug any block or tap Cover for -35% defense &amp; fast regen, use Boost Pads to flank, and unleash Overdrive Nova!
             </p>
           </div>
         </div>
